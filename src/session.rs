@@ -5,7 +5,7 @@ use tide::{
 
 use crate::Request;
 use async_std::{io::WriteExt, net::TcpStream};
-use std::{sync::Arc, time::SystemTime};
+use std::time::SystemTime;
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct ChromeSession {
     token: String,
