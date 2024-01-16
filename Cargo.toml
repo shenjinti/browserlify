@@ -1,0 +1,20 @@
+[package]
+name = "chrome_server"
+version = "0.1.0"
+edition = "2021"
+description = "A simple server that can be used to test the Chrome DevTools Protocol"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+chromiumoxide = "0.5.7"
+async-std = "1.12.0"
+clap = { version = "4.4.17", features = ["derive"] }
+tide = "0.16.0"
+log = "0.4.20"
+env_logger = "0.10.1"
+chrono = "0.4.31"
+serde = { version = "1.0.195" }
+serde_json = "1.0.111"
+uuid = { version = "1.6.1", features = ["v4"] }
+futures = "0.3.30"
