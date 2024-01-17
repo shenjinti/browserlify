@@ -1,7 +1,7 @@
 use crate::StateRef;
 use axum::{
     body::Body,
-    extract::{Path, State, WebSocketUpgrade},
+    extract::{ws, Path, State, WebSocketUpgrade},
     response::Response,
     Json,
 };
@@ -11,54 +11,38 @@ use futures::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use std::{sync::Mutex, time::SystemTime};
 use tokio::select;
-use tokio_tungstenite::WebSocketStream;
+use tokio_tungstenite::tungstenite;
 
-fn from_ts_message(
-    msg: tokio_tungstenite::tungstenite::Message,
-) -> Option<axum::extract::ws::Message> {
+fn from_ts_message(msg: tungstenite::Message) -> Option<ws::Message> {
     match msg {
-        tokio_tungstenite::tungstenite::Message::Text(s) => {
-            Some(axum::extract::ws::Message::Text(s))
-        }
-        tokio_tungstenite::tungstenite::Message::Binary(b) => {
-            Some(axum::extract::ws::Message::Binary(b))
-        }
-        tokio_tungstenite::tungstenite::Message::Ping(b) => {
-            Some(axum::extract::ws::Message::Ping(b))
-        }
-        tokio_tungstenite::tungstenite::Message::Pong(b) => {
-            Some(axum::extract::ws::Message::Pong(b))
-        }
-        tokio_tungstenite::tungstenite::Message::Close(Some(close)) => Some(
-            axum::extract::ws::Message::Close(Some(axum::extract::ws::CloseFrame {
+        tungstenite::Message::Text(text) => Some(ws::Message::Text(text)),
+        tungstenite::Message::Binary(data) => Some(ws::Message::Binary(data)),
+        tungstenite::Message::Ping(data) => Some(ws::Message::Ping(data)),
+        tungstenite::Message::Pong(data) => Some(ws::Message::Pong(data)),
+        tungstenite::Message::Close(Some(close)) => {
+            Some(ws::Message::Close(Some(ws::CloseFrame {
                 code: close.code.into(),
                 reason: close.reason,
-            })),
-        ),
-        tokio_tungstenite::tungstenite::Message::Close(None) => {
-            Some(axum::extract::ws::Message::Close(None))
+            })))
         }
-        tokio_tungstenite::tungstenite::Message::Frame(_) => None,
+        tungstenite::Message::Close(None) => Some(ws::Message::Close(None)),
+        tungstenite::Message::Frame(_) => None,
     }
 }
 
-fn to_ts_message(msg: axum::extract::ws::Message) -> tokio_tungstenite::tungstenite::Message {
+fn to_ts_message(msg: ws::Message) -> tungstenite::Message {
     match msg {
-        axum::extract::ws::Message::Text(s) => tokio_tungstenite::tungstenite::Message::Text(s),
-        axum::extract::ws::Message::Binary(b) => tokio_tungstenite::tungstenite::Message::Binary(b),
-        axum::extract::ws::Message::Ping(b) => tokio_tungstenite::tungstenite::Message::Ping(b),
-        axum::extract::ws::Message::Pong(b) => tokio_tungstenite::tungstenite::Message::Pong(b),
-        axum::extract::ws::Message::Close(Some(close)) => {
-            tokio_tungstenite::tungstenite::Message::Close(Some(
-                tokio_tungstenite::tungstenite::protocol::CloseFrame {
-                    code: close.code.into(),
-                    reason: close.reason,
-                },
-            ))
+        ws::Message::Text(text) => tungstenite::Message::Text(text),
+        ws::Message::Binary(data) => tungstenite::Message::Binary(data),
+        ws::Message::Ping(data) => tungstenite::Message::Ping(data),
+        ws::Message::Pong(data) => tungstenite::Message::Pong(data),
+        ws::Message::Close(Some(close)) => {
+            tungstenite::Message::Close(Some(tungstenite::protocol::CloseFrame {
+                code: close.code.into(),
+                reason: close.reason,
+            }))
         }
-        axum::extract::ws::Message::Close(None) => {
-            tokio_tungstenite::tungstenite::Message::Close(None)
-        }
+        ws::Message::Close(None) => tungstenite::Message::Close(None),
     }
 }
 
@@ -66,7 +50,7 @@ fn to_ts_message(msg: axum::extract::ws::Message) -> tokio_tungstenite::tungsten
 pub(crate) struct Session {
     created_at: SystemTime,
     id: String,
-    addr: String,
+    ws_url: String,
     data_dir: String,
     shutdown_tx: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
 }
@@ -77,12 +61,17 @@ impl Session {
         ws_url: &str,
         shutdown_tx: tokio::sync::oneshot::Sender<()>,
     ) -> Self {
-        let data_dir = format!("{}/{}", data_root, uuid::Uuid::new_v4());
+        let id = ws_url
+            .split("/")
+            .last()
+            .unwrap_or(uuid::Uuid::new_v4().to_string().as_str())
+            .to_string();
+        let data_dir = format!("{}/{}", data_root.trim_end_matches("/"), id);
         Self {
-            id: uuid::Uuid::new_v4().to_string(),
+            id,
             data_dir,
             shutdown_tx: Mutex::new(Some(shutdown_tx)),
-            addr: ws_url.to_string(),
+            ws_url: ws_url.to_string(),
             created_at: SystemTime::now(),
         }
     }
@@ -114,10 +103,13 @@ pub(crate) async fn create_session(
     }
     match handle_session(ws, State(state)).await {
         Ok(r) => r,
-        Err(e) => Response::builder()
-            .status(500)
-            .body(Body::from(e.to_string()))
-            .unwrap(),
+        Err(e) => {
+            log::warn!("create session error: {}", e);
+            Response::builder()
+                .status(500)
+                .body(Body::from(e.to_string()))
+                .unwrap()
+        }
     }
 }
 
@@ -133,21 +125,19 @@ pub(crate) async fn handle_session(
         .await
         .map_err(|e| axum::Error::new(e))?;
 
-    let addr = browser.websocket_address().to_string();
+    let ws_url = browser.websocket_address().to_string();
+    let (upstream, _) = tokio_tungstenite::connect_async(&ws_url)
+        .await
+        .map_err(|e| axum::Error::new(e))?;
 
-    let (mut server_ws_tx, mut server_ws_rx) = WebSocketStream::from_raw_socket(
-        tokio::net::TcpStream::connect(&addr)
-            .await
-            .map_err(|e| axum::Error::new(e))?,
-        tokio_tungstenite::tungstenite::protocol::Role::Client,
-        None,
-    )
-    .await
-    .split();
+    let (mut server_ws_tx, mut server_ws_rx) = upstream.split();
 
     let r = ws.on_upgrade(|client_stream| async move {
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-        let session = Session::new(&state.data_root, &addr, shutdown_tx);
+        let session = Session::new(&state.data_root, &ws_url, shutdown_tx);
+        let id = session.id.clone();
+        log::info!("new session, {}", ws_url);
+
         state.sessions.lock().unwrap().push(session);
 
         let (mut client_ws_tx, mut client_ws_rx) = client_stream.split();
@@ -158,7 +148,7 @@ pub(crate) async fn handle_session(
                     match client_ws_tx.send(msg).await {
                         Ok(_) => {}
                         Err(e) => {
-                            log::error!("client_ws_tx.send error: {}", e);
+                            log::error!("client_ws_tx.send id: {} error: {}", id, e);
                             break;
                         }
                     }
@@ -171,7 +161,7 @@ pub(crate) async fn handle_session(
                 match server_ws_tx.send(to_ts_message(msg)).await {
                     Ok(_) => {}
                     Err(e) => {
-                        log::error!("server_ws_tx.send error: {}", e);
+                        log::error!("server_ws_tx.send id: {} error: {}", id, e);
                         break;
                     }
                 }
@@ -180,25 +170,26 @@ pub(crate) async fn handle_session(
 
         select! {
             _ = server_to_client => {
-                log::error!("server_to_client shutdown: {}", addr);
             }
             _ = client_to_server => {
-                log::error!("client_to_server shutdown: {}", addr);
             }
             _ = async {
                 while let Some(_) = handler.next().await {
                     continue;
                 }
             } => {
-                log::error!("browser handler shutdown {}", addr);
             }
             _  = shutdown_rx => {
-                log::error!("shutdown_rx shutdown: {}", addr);
+                log::warn!("shutdown_rx shutdown id: {}", id);
             }
         }
-        state.sessions.lock().unwrap().retain(|s| s.addr != addr);
-        browser.close().await.ok();
-        browser.wait().await.ok();
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .retain(|s| s.ws_url != ws_url);
+        browser.kill().await;
+        log::warn!("session closed id: {}", id);
     });
     Ok(r)
 }
@@ -210,7 +201,6 @@ pub(crate) async fn list_session(State(state): State<StateRef>) -> Json<Value> {
         .map(|s| {
             json!({
                 "id": s.id,
-                "addr": s.addr,
                 "data_dir": s.data_dir,
                 "created_at": s.created_at
             })
@@ -228,7 +218,7 @@ pub(crate) async fn kill_session(
         .lock()
         .unwrap()
         .iter()
-        .find(|s| s.addr == session_id)
+        .find(|s| s.ws_url == session_id)
         .and_then(|s| s.shutdown_tx.lock().unwrap().take());
 
     Response::builder()

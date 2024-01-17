@@ -11,6 +11,8 @@ use std::{
 };
 
 mod session;
+#[cfg(test)]
+mod tests;
 
 #[derive(Parser, Debug)]
 #[command(version)]

@@ -4,12 +4,12 @@ Browserlify  - browser as a service
 ### How to run
 ```bash
 $ cd browserlify
-$ cargo run
+$ cargo run --
 ```
 Test via puppeteer
 ```javascript
   const browser = await puppeteer.connect({
-    browserWSEndpoint: `ws://localhost:8080`,
+    browserWSEndpoint: `ws://localhost:9000`,
   });
   const page = await browser.newPage();
   await page.goto('https://example.org');
@@ -17,6 +17,6 @@ Test via puppeteer
 ```
 
 ### API
-- `/api/list` - list all session
-- `/api/kill/:session_id` - kill session by id
-- `/api/kill_all` - kill all sessions
+- `/list` - list all session
+- `/kill/:session_id` - kill session by id
+- `/kill_all` - kill all sessions
