@@ -145,12 +145,9 @@ pub(crate) async fn handle_session(
         let server_to_client = async {
             while let Some(Ok(msg)) = server_ws_rx.next().await {
                 if let Some(msg) = from_ts_message(msg) {
-                    match client_ws_tx.send(msg).await {
-                        Ok(_) => {}
-                        Err(e) => {
-                            log::error!("client_ws_tx.send id: {} error: {}", id, e);
-                            break;
-                        }
+                    if let Err(e) = client_ws_tx.send(msg).await {
+                        log::error!("client_ws_tx.send id: {} error: {}", id, e);
+                        break;
                     }
                 }
             }
@@ -158,27 +155,21 @@ pub(crate) async fn handle_session(
 
         let client_to_server = async {
             while let Some(Ok(msg)) = client_ws_rx.next().await {
-                match server_ws_tx.send(to_ts_message(msg)).await {
-                    Ok(_) => {}
-                    Err(e) => {
-                        log::error!("server_ws_tx.send id: {} error: {}", id, e);
-                        break;
-                    }
+                if let Err(e) = server_ws_tx.send(to_ts_message(msg)).await {
+                    log::error!("server_ws_tx.send id: {} error: {}", id, e);
+                    break;
                 }
             }
         };
 
         select! {
-            _ = server_to_client => {
-            }
-            _ = client_to_server => {
-            }
+            _ = server_to_client => {}
+            _ = client_to_server => {}
             _ = async {
                 while let Some(_) = handler.next().await {
                     continue;
                 }
-            } => {
-            }
+            } => { }
             _  = shutdown_rx => {
                 log::warn!("shutdown_rx shutdown id: {}", id);
             }
