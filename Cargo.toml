@@ -1,16 +1,17 @@
 [package]
-name = "chrome-server"
+name = "browserlify"
 version = "0.1.0"
 edition = "2021"
-description = "A Chrome Server with a REST API"
+description = "A browser service with a REST API"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-chromiumoxide = "0.5.7"
-async-std = "1.12.0"
+axum = { version = "0.7.4", features = ["ws"] }
+chromiumoxide = { version = "0.5.7", features = [
+    "tokio-runtime",
+], default-features = false }
 clap = { version = "4.4.17", features = ["derive"] }
-tide = "0.16.0"
 log = "0.4.20"
 env_logger = "0.10.1"
 chrono = "0.4.31"
@@ -18,3 +19,5 @@ serde = { version = "1.0.195" }
 serde_json = "1.0.111"
 uuid = { version = "1.6.1", features = ["v4"] }
 futures = "0.3.30"
+tokio = { version = "1.35.1", features = ["full"] }
+tokio-tungstenite = "0.21.0"

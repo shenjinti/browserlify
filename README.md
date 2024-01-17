@@ -1,9 +1,9 @@
-Chrome server
+Browserlify  - browser as a service
 =======
 
 ### How to run
 ```bash
-$ cd chrome_server
+$ cd browserlify
 $ cargo run
 ```
 Test via puppeteer

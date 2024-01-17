@@ -1,12 +1,15 @@
+use axum::{
+    routing::{get, post},
+    Router,
+};
 use clap::Parser;
 use log;
-use session::ChromeSession;
+use session::Session;
 use std::{
     io::Write,
     sync::{Arc, Mutex},
 };
 
-mod debugger;
 mod session;
 
 #[derive(Parser, Debug)]
@@ -21,7 +24,7 @@ struct Cli {
     #[clap(long, default_value = "/tmp/chrome_server")]
     data_root: Option<String>,
 
-    #[clap(long, default_value = "/api")]
+    #[clap(long, default_value = "/")]
     prefix: Option<String>,
 
     #[clap(long, default_value = "info")]
@@ -55,13 +58,13 @@ fn init_log(level: String, is_test: bool) {
 }
 
 #[derive(Clone)]
-pub struct State {
-    sessions: Arc<Mutex<Vec<ChromeSession>>>,
+pub struct AppState {
+    sessions: Arc<Mutex<Vec<Session>>>,
     max_sessions: usize,
     data_root: String,
 }
 
-impl State {
+impl AppState {
     pub fn new(data_root: String, max_sessions: usize) -> Self {
         Self {
             sessions: Arc::new(Mutex::new(Vec::new())),
@@ -69,31 +72,38 @@ impl State {
             data_root,
         }
     }
+    pub fn is_full(&self) -> bool {
+        if self.max_sessions <= 0 {
+            return false;
+        }
+        self.sessions.lock().unwrap().len() >= self.max_sessions
+    }
 }
+type StateRef = Arc<AppState>;
 
-type Request = tide::Request<State>;
-
-#[async_std::main]
-async fn main() -> tide::Result<()> {
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
     let args = Cli::parse();
     let addr = args.addr.unwrap_or_default();
     let prefix = args.prefix.unwrap_or_default();
 
     init_log(args.log_level.unwrap_or_default(), false);
 
-    let mut app = tide::with_state(State::new(
+    let state = Arc::new(AppState::new(
         args.data_root.unwrap_or_default(),
         args.max_sessions.unwrap_or_default(),
     ));
-    let mut r = app.at(&prefix.trim_end_matches('/'));
+    let router = Router::new()
+        .route("/", get(session::create_session))
+        .route("/list", get(session::list_session))
+        .route("/kill/:session_id", post(session::kill_session))
+        .route("/kill_all", post(session::killall_session))
+        .with_state(state);
 
-    r.get(session::new_session);
-    r.at("/list").get(session::list_session);
-    r.at("/kill/:id").post(session::kill_session);
-    r.at("/kill_all").post(session::killall_session);
+    let app = Router::new().nest(&prefix, router);
 
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
     log::warn!("Starting server on {} -> {}", addr, prefix);
-    app.listen(addr).await?;
-
+    axum::serve(listener, app).await.unwrap();
     Ok(())
 }
