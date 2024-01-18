@@ -113,7 +113,8 @@ pub(crate) struct SessionGuard {
 }
 
 impl SessionGuard {
-    pub(crate) fn new(state: StateRef, id: String, session: Session) -> Self {
+    pub(crate) fn new(state: StateRef, session: Session) -> Self {
+        let id = session.id.clone();
         state.sessions.lock().unwrap().push(session);
         Self { state, id }
     }
@@ -214,7 +215,7 @@ pub(crate) async fn handle_session(
 
     let r = ws.on_upgrade(|client_stream| async move {
         let id = session.id.clone();
-        let _guard = SessionGuard::new(state.clone(), id.clone(), session);
+        let _guard = SessionGuard::new(state.clone(), session);
 
         let (mut client_ws_tx, mut client_ws_rx) = client_stream.split();
 

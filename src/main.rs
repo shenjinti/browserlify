@@ -35,6 +35,9 @@ struct Cli {
 
     #[clap(long, default_value = "false", help = "enable private ip access")]
     enable_private_ip: bool,
+
+    #[clap(long, default_value = "60", help = "max timeout in seconds")]
+    max_timeout: u64,
 }
 
 fn init_log(level: String, is_test: bool) {
@@ -69,6 +72,7 @@ pub struct AppState {
     max_sessions: usize,
     data_root: String,
     enable_private_ip: bool,
+    max_timeout: u64,
 }
 
 impl AppState {
@@ -78,6 +82,7 @@ impl AppState {
             max_sessions,
             data_root,
             enable_private_ip: false,
+            max_timeout: 60, // 60 seconds
         }
     }
     pub fn is_full(&self) -> bool {
@@ -102,6 +107,7 @@ async fn main() -> std::io::Result<()> {
         max_sessions: args.max_sessions,
         sessions: Arc::new(Mutex::new(Vec::new())),
         enable_private_ip: args.enable_private_ip,
+        max_timeout: args.max_timeout,
     });
     let router = Router::new()
         .route("/", get(session::create_session))

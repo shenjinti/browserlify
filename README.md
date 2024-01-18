@@ -20,8 +20,22 @@ Test via puppeteer
 - `/list` - list all session
 - `/kill/:session_id` - kill session by id
 - `/kill_all` - kill all sessions
+
 ### Content API
 - `/pdf` - generate pdf from url
+```
+curl "http://localhost:9000/pdf?url=http://browserlify.com" > browserlify.pdf
+```
 - `/screenshot` - generate screenshot from url
+```
+curl "http://localhost:9000/screenshot?url=http://browserlify.com" > browserlify.png
+```
 - `/text` - dump dom text from url
+```
+curl "http://localhost:9000/text?url=http://browserlify.com" > browserlify.txt
+```
 - `/html` - dump html content from url
+```
+curl "http://localhost:9000/html?url=http://browserlify.com" > browserlify.html
+```
+

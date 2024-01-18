@@ -10,6 +10,7 @@ description = "A browser service with a REST API"
 axum = { version = "0.7.4", features = ["ws", "json"] }
 chromiumoxide = { version = "0.5.7", features = [
     "tokio-runtime",
+    "bytes",
 ], default-features = false }
 clap = { version = "4.4.17", features = ["derive"] }
 log = "0.4.20"

@@ -6,18 +6,18 @@ use axum::{
     body::Body,
     extract::{Query, State},
     http::StatusCode,
-    response::{IntoResponse, Response},
+    response::Response,
 };
 use chromiumoxide::{
     cdp::browser_protocol::page::{CaptureScreenshotFormat, PrintToPdfParams, Viewport},
     page::ScreenshotParams,
-    Browser,
+    Browser, Page,
 };
-use futures::StreamExt;
+use futures::{Future, StreamExt};
 use serde::Deserialize;
-use tokio::{select, sync::oneshot};
+use std::time::SystemTime;
+use tokio::{select, sync::oneshot, time};
 
-#[allow(unused)]
 #[derive(Deserialize)]
 pub struct RenderParams {
     url: String,
@@ -25,9 +25,9 @@ pub struct RenderParams {
     file_name: Option<String>,
     // total timeout in seconds
     #[serde(rename = "timeout")]
-    timeout: Option<u32>,
+    timeout: Option<u64>,
 
-    wait_load: Option<u32>,
+    wait_load: Option<u64>,
     wait_selector: Option<String>,
 
     #[serde(rename = "width")]
@@ -58,6 +58,9 @@ pub struct RenderParams {
 
     #[serde(rename = "header_footer")]
     display_header_footer: Option<bool>,
+
+    #[serde(rename = "paper")]
+    paper_size: Option<String>,
 
     format: Option<String>,
     quality: Option<i64>,
@@ -95,27 +98,11 @@ impl Into<ScreenshotParams> for RenderParams {
         };
 
         if let Some(clip) = self.clip {
-            let mut parts = clip.split(',');
-            let x = parts
-                .next()
-                .unwrap_or_default()
-                .parse::<f64>()
-                .unwrap_or_default();
-            let y = parts
-                .next()
-                .unwrap_or_default()
-                .parse::<f64>()
-                .unwrap_or_default();
-            let width = parts
-                .next()
-                .unwrap_or_default()
-                .parse::<f64>()
-                .unwrap_or_default();
-            let height = parts
-                .next()
-                .unwrap_or_default()
-                .parse::<f64>()
-                .unwrap_or_default();
+            let mut parts = clip.split(',').map(str::parse::<f64>).map(Result::unwrap);
+            let x = parts.next().unwrap_or(0.0);
+            let y = parts.next().unwrap_or(0.0);
+            let width = parts.next().unwrap_or(0.0);
+            let height = parts.next().unwrap_or(0.0);
 
             let viewport = Viewport::builder()
                 .x(x)
@@ -169,45 +156,68 @@ pub fn can_access(u: url::Url, state: StateRef) -> Result<url::Url, String> {
     Ok(u)
 }
 
-pub async fn render_pdf(
+pub async fn extrace_page<C, Fut>(
     Query(params): Query<RenderParams>,
     State(state): State<StateRef>,
-) -> Result<Response, String> {
-    log::warn!("render pdf: {:?}", params.url);
+    callback: C,
+) -> Result<Response, String>
+where
+    C: FnOnce(String, RenderParams, StateRef, Page) -> Fut + Send + 'static,
+    Fut: Future<Output = Result<(Vec<u8>, String, Option<String>), String>> + Send + 'static,
+{
     let u = url::Url::parse(params.url.as_str())
         .map_err(|e| e.to_string())
         .and_then(|u| can_access(u, state.clone()))?;
 
-    let host = u.host_str().unwrap_or_default();
+    let host = u.host_str().map(str::to_lowercase).unwrap_or_default();
+    let st = SystemTime::now();
 
     let opt = SessionOption::default();
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let session = create_browser_session(opt, state.clone(), Some(shutdown_tx)).await?;
     let mut browser: Browser = session.browser.take().ok_or_else(|| "window is None")?;
     let mut handler = session.handler.take().ok_or_else(|| "handler is None")?;
+    let launch_usage = st.elapsed().unwrap_or_default();
+    let st = SystemTime::now();
 
-    let id = session.id.clone();
-    let _guard = SessionGuard::new(state.clone(), id.clone(), session);
+    let timeout = params
+        .timeout
+        .unwrap_or(state.max_timeout)
+        .max(state.max_timeout);
 
-    let file_name = match &params.file_name {
-        Some(name) => name.clone(),
-        None => format!("{}.pdf", host),
-    };
-
-    let file_name_ref = file_name.clone();
+    let _guard = SessionGuard::new(state.clone(), session);
     let render_loop = async {
         let page = browser
             .new_page(params.url.as_str())
             .await
             .map_err(|e| e.to_string())?;
 
-        page.wait_for_navigation()
-            .await
-            .map_err(|e| e.to_string())?;
+        if let Some(wait_load) = params.wait_load {
+            select! {
+                _ = time::sleep(time::Duration::from_secs(wait_load)) => {}
+                _ = page.wait_for_navigation() => {}
+            };
+        } else {
+            page.wait_for_navigation().await.ok();
+        }
 
-        page.save_pdf(params.into(), file_name_ref)
-            .await
-            .map_err(|e| e.to_string())
+        if let Some(selector) = &params.wait_selector {
+            let wait_timeout = params.wait_load.unwrap_or(state.max_timeout / 2);
+            select! {
+                _ = time::sleep(time::Duration::from_secs(wait_timeout)) => {}
+                _ = async {
+                    loop {
+                    match page.find_element(selector.as_str()).await {
+                        Ok(_) => break,
+                        Err(_) => {}
+                    }
+                    time::sleep(time::Duration::from_millis(20)).await;
+                }
+                } => {}
+            }
+        }
+
+        callback(host.to_string(), params, state, page).await
     };
 
     let r = select! {
@@ -219,187 +229,109 @@ pub async fn render_pdf(
         } => { Err("handler exit".to_string()) }
         _ = shutdown_rx => {
             Err("session cancel".to_string())
-        }
+        },
+        _ = async { time::sleep(time::Duration::from_secs(timeout)).await } => {
+            Err("timeout".to_string())
+        },
     };
 
     browser.kill().await;
 
-    Response::builder()
+    let (content, content_type, file_name) = r?;
+    let resp = Response::builder()
         .status(StatusCode::OK)
-        .header("Content-Type", "application/pdf")
-        .header(
+        .header("Content-Type", content_type);
+    let extract_usage = st.elapsed().unwrap_or_default();
+
+    log::info!(
+        "extract url: {}, launch: {:?}, extract: {:?}",
+        u,
+        launch_usage,
+        extract_usage
+    );
+
+    match file_name {
+        Some(name) => resp.header(
             "Content-Disposition",
-            format!("attachment; filename=\"{}\"", file_name),
-        )
-        .body(Body::from(r.unwrap()))
-        .map_err(|e| e.to_string())
+            format!("attachment; filename=\"{}\"", name),
+        ),
+        None => resp,
+    }
+    .body(Body::from(content))
+    .map_err(|e| e.to_string())
+}
+pub async fn render_pdf(
+    Query(params): Query<RenderParams>,
+    State(state): State<StateRef>,
+) -> Result<Response, String> {
+    extrace_page(
+        Query(params),
+        State(state),
+        |host, params, _, page| async move {
+            let file_name = match &params.file_name {
+                Some(name) => name.clone(),
+                None => format!("{host}.pdf"),
+            };
+            let content = page.pdf(params.into()).await.map_err(|e| e.to_string())?;
+            Ok((content, "application/pdf".to_string(), Some(file_name)))
+        },
+    )
+    .await
 }
 
 pub async fn render_screenshot(
     Query(params): Query<RenderParams>,
     State(state): State<StateRef>,
-) -> Result<impl IntoResponse, String> {
-    let u = url::Url::parse(params.url.as_str())
-        .map_err(|e| e.to_string())
-        .and_then(|u| can_access(u, state.clone()))?;
-
-    let opt = SessionOption::default();
-    let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let session = create_browser_session(opt, state.clone(), Some(shutdown_tx)).await?;
-    let mut browser: Browser = session.browser.take().ok_or_else(|| "window is None")?;
-    let mut handler = session.handler.take().ok_or_else(|| "handler is None")?;
-
-    let id = session.id.clone();
-    let _guard = SessionGuard::new(state.clone(), id.clone(), session);
-
-    let file_format = match &params.format {
-        Some(format) => format.clone(),
-        None => "png".to_string(),
-    };
-
-    let host = u.host_str().unwrap_or_default();
-    let file_name = match &params.file_name {
-        Some(name) => name.clone(),
-        None => format!("{host}.{file_format}"),
-    };
-
-    let render_loop = async {
-        let page = browser
-            .new_page(params.url.as_str())
-            .await
-            .map_err(|e| e.to_string())?;
-
-        page.wait_for_navigation()
-            .await
-            .map_err(|e| e.to_string())?;
-
-        let params: ScreenshotParams = params.into();
-        page.screenshot(params).await.map_err(|e| e.to_string())
-    };
-
-    let r = select! {
-        r = render_loop => {
-            r
+) -> Result<Response, String> {
+    extrace_page(
+        Query(params),
+        State(state),
+        |host, params, _, page| async move {
+            let file_ext = match &params.format {
+                Some(format) => format.clone(),
+                None => "png".to_string(),
+            };
+            let file_name = match &params.file_name {
+                Some(name) => name.clone(),
+                None => format!("{host}.{file_ext}"),
+            };
+            let params: ScreenshotParams = params.into();
+            let content = page.screenshot(params).await.map_err(|e| e.to_string())?;
+            Ok((content, format!("image/{file_ext}"), Some(file_name)))
         },
-        _ = async {
-            while let Some(_) = handler.next().await {}
-        } => { Err("handler exit".to_string()) }
-        _ = shutdown_rx => {
-            Err("session cancel".to_string())
-        }
-    };
-
-    browser.kill().await;
-
-    Response::builder()
-        .status(StatusCode::OK)
-        .header("Content-Type", format!("image/{}", file_format))
-        .header(
-            "Content-Disposition",
-            format!("attachment; filename=\"{}\"", file_name),
-        )
-        .body(Body::from(r.unwrap()))
-        .map_err(|e| e.to_string())
+    )
+    .await
 }
 
 pub async fn dump_text(
     Query(params): Query<RenderParams>,
     State(state): State<StateRef>,
-) -> Result<impl IntoResponse, String> {
-    let _ = url::Url::parse(params.url.as_str())
-        .map_err(|e| e.to_string())
-        .and_then(|u| can_access(u, state.clone()))?;
-
-    let opt = SessionOption::default();
-    let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let session = create_browser_session(opt, state.clone(), Some(shutdown_tx)).await?;
-    let mut browser: Browser = session.browser.take().ok_or_else(|| "window is None")?;
-    let mut handler = session.handler.take().ok_or_else(|| "handler is None")?;
-
-    let id = session.id.clone();
-    let _guard = SessionGuard::new(state.clone(), id.clone(), session);
-
-    let render_loop = async {
-        let page = browser
-            .new_page(params.url.as_str())
+) -> Result<Response, String> {
+    extrace_page(Query(params), State(state), |_, _, _, page| async move {
+        let content: String = page
+            .evaluate(
+                "{ let retVal = '';
+            if (document.documentElement) {
+                retVal = document.documentElement.innerText;
+            }
+            retVal}",
+            )
             .await
+            .map_err(|e| e.to_string())?
+            .into_value()
             .map_err(|e| e.to_string())?;
-
-        page.wait_for_navigation()
-            .await
-            .map_err(|e| e.to_string())?;
-
-        page.content().await.map_err(|e| e.to_string())
-    };
-
-    let r = select! {
-        r = render_loop => {
-            r
-        },
-        _ = async {
-            while let Some(_) = handler.next().await {}
-        } => { Err("handler exit".to_string()) }
-        _ = shutdown_rx => {
-            Err("session cancel".to_string())
-        }
-    };
-
-    browser.kill().await;
-
-    Response::builder()
-        .status(StatusCode::OK)
-        .header("Content-Type", "plain/text")
-        .body(Body::from(r.unwrap_or_default()))
-        .map_err(|e| e.to_string())
+        Ok((content.into(), format!("plain/text"), None))
+    })
+    .await
 }
 
 pub async fn dump_html(
     Query(params): Query<RenderParams>,
     State(state): State<StateRef>,
-) -> Result<impl IntoResponse, String> {
-    let _ = url::Url::parse(params.url.as_str())
-        .map_err(|e| e.to_string())
-        .and_then(|u| can_access(u, state.clone()))?;
-
-    let opt = SessionOption::default();
-    let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let session = create_browser_session(opt, state.clone(), Some(shutdown_tx)).await?;
-    let mut browser: Browser = session.browser.take().ok_or_else(|| "window is None")?;
-    let mut handler = session.handler.take().ok_or_else(|| "handler is None")?;
-
-    let id = session.id.clone();
-    let _guard = SessionGuard::new(state.clone(), id.clone(), session);
-
-    let render_loop = async {
-        let page = browser
-            .new_page(params.url.as_str())
-            .await
-            .map_err(|e| e.to_string())?;
-
-        page.wait_for_navigation()
-            .await
-            .map_err(|e| e.to_string())?;
-
-        page.content().await.map_err(|e| e.to_string())
-    };
-
-    let r = select! {
-        r = render_loop => {
-            r
-        },
-        _ = async {
-            while let Some(_) = handler.next().await {}
-        } => { Err("handler exit".to_string()) }
-        _ = shutdown_rx => {
-            Err("session cancel".to_string())
-        }
-    };
-
-    browser.kill().await;
-
-    Response::builder()
-        .status(StatusCode::OK)
-        .header("Content-Type", "text/html")
-        .body(Body::from(r.unwrap_or_default()))
-        .map_err(|e| e.to_string())
+) -> Result<Response, String> {
+    extrace_page(Query(params), State(state), |_, _, _, page| async move {
+        let content = page.content_bytes().await.map_err(|e| e.to_string())?;
+        Ok((content.into(), format!("text/html"), None))
+    })
+    .await
 }
