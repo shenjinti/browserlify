@@ -10,6 +10,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+mod content;
 mod session;
 #[cfg(test)]
 mod tests;
@@ -18,19 +19,22 @@ mod tests;
 #[command(version)]
 struct Cli {
     #[clap(long, default_value = "127.0.0.1:9000")]
-    addr: Option<String>,
+    addr: String,
 
-    #[clap(long, short)]
-    max_sessions: Option<usize>,
+    #[clap(long, short, default_value = "0")]
+    max_sessions: usize,
 
     #[clap(long, default_value = "/tmp/chrome_server")]
-    data_root: Option<String>,
+    data_root: String,
 
     #[clap(long, default_value = "/")]
-    prefix: Option<String>,
+    prefix: String,
 
     #[clap(long, default_value = "info")]
-    log_level: Option<String>,
+    log_level: String,
+
+    #[clap(long, default_value = "false", help = "enable private ip access")]
+    enable_private_ip: bool,
 }
 
 fn init_log(level: String, is_test: bool) {
@@ -64,14 +68,16 @@ pub struct AppState {
     sessions: Arc<Mutex<Vec<Session>>>,
     max_sessions: usize,
     data_root: String,
+    enable_private_ip: bool,
 }
 
 impl AppState {
     pub fn new(data_root: String, max_sessions: usize) -> Self {
-        Self {
+        AppState {
             sessions: Arc::new(Mutex::new(Vec::new())),
             max_sessions,
             data_root,
+            enable_private_ip: false,
         }
     }
     pub fn is_full(&self) -> bool {
@@ -86,20 +92,26 @@ type StateRef = Arc<AppState>;
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     let args = Cli::parse();
-    let addr = args.addr.unwrap_or_default();
-    let prefix = args.prefix.unwrap_or_default();
+    let addr = args.addr;
+    let prefix = args.prefix;
 
-    init_log(args.log_level.unwrap_or_default(), false);
+    init_log(args.log_level, false);
 
-    let state = Arc::new(AppState::new(
-        args.data_root.unwrap_or_default(),
-        args.max_sessions.unwrap_or_default(),
-    ));
+    let state = Arc::new(AppState {
+        data_root: args.data_root,
+        max_sessions: args.max_sessions,
+        sessions: Arc::new(Mutex::new(Vec::new())),
+        enable_private_ip: args.enable_private_ip,
+    });
     let router = Router::new()
         .route("/", get(session::create_session))
         .route("/list", get(session::list_session))
         .route("/kill/:session_id", post(session::kill_session))
         .route("/kill_all", post(session::killall_session))
+        .route("/pdf", get(content::render_pdf))
+        .route("/screenshot", get(content::render_screenshot))
+        .route("/text", get(content::dump_text))
+        .route("/html", get(content::dump_html))
         .with_state(state);
 
     let app = Router::new().nest(&prefix, router);

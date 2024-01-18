@@ -5,12 +5,12 @@ use axum::{
     response::Response,
     Json,
 };
-use chromiumoxide::browser::BrowserConfigBuilder;
-use chromiumoxide::Browser;
+use chromiumoxide::{browser::BrowserConfigBuilder, handler::viewport::Viewport};
+use chromiumoxide::{Browser, Handler};
 use futures::{SinkExt, StreamExt};
 use serde_json::{json, Value};
-use std::{sync::Mutex, time::SystemTime};
-use tokio::select;
+use std::{cell::RefCell, time::SystemTime};
+use tokio::{select, sync::oneshot};
 use tokio_tungstenite::tungstenite;
 
 fn from_ts_message(msg: tungstenite::Message) -> Option<ws::Message> {
@@ -46,35 +46,127 @@ fn to_ts_message(msg: ws::Message) -> tungstenite::Message {
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct Session {
-    created_at: SystemTime,
-    id: String,
-    ws_url: String,
-    data_dir: String,
-    shutdown_tx: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+#[derive(Debug, Clone)]
+pub(crate) struct SessionOption {
+    pub view_port: Viewport,
+    pub cleanup: bool,
+    pub enable_cache: bool,
 }
 
-impl Session {
-    pub fn new(
-        data_root: &str,
-        ws_url: &str,
-        shutdown_tx: tokio::sync::oneshot::Sender<()>,
-    ) -> Self {
-        let id = ws_url
-            .split("/")
-            .last()
-            .unwrap_or(uuid::Uuid::new_v4().to_string().as_str())
-            .to_string();
-        let data_dir = format!("{}/{}", data_root.trim_end_matches("/"), id);
+impl Default for SessionOption {
+    fn default() -> Self {
         Self {
-            id,
-            data_dir,
-            shutdown_tx: Mutex::new(Some(shutdown_tx)),
-            ws_url: ws_url.to_string(),
-            created_at: SystemTime::now(),
+            view_port: Viewport {
+                width: 1440,
+                height: 900,
+                device_scale_factor: None,
+                emulating_mobile: false,
+                is_landscape: false,
+                has_touch: false,
+            },
+            cleanup: true,
+            enable_cache: false,
         }
     }
+}
+
+#[derive(Debug)]
+pub(crate) struct Session {
+    pub(crate) id: String,
+    data_dir: String,
+    view_port: Viewport,
+    // cleanup data_dir when session closed
+    cleanup: bool,
+    enable_cache: bool,
+    created_at: SystemTime,
+    ws_url: String,
+    shutdown_tx: RefCell<Option<oneshot::Sender<()>>>,
+    pub(crate) browser: RefCell<Option<Browser>>,
+    pub(crate) handler: RefCell<Option<Handler>>,
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        match self.cleanup {
+            true => match std::fs::remove_dir_all(&self.data_dir) {
+                Ok(_) => {
+                    log::info!("remove_dir_all id: {} dir: {}", self.id, self.data_dir);
+                }
+                Err(e) => {
+                    log::error!(
+                        "remove_dir_all id: {} dir: {} error: {}",
+                        self.id,
+                        self.data_dir,
+                        e
+                    );
+                }
+            },
+            false => {}
+        }
+        log::info!("session drop id: {}", self.id);
+    }
+}
+
+pub(crate) struct SessionGuard {
+    state: StateRef,
+    id: String,
+}
+
+impl SessionGuard {
+    pub(crate) fn new(state: StateRef, id: String, session: Session) -> Self {
+        state.sessions.lock().unwrap().push(session);
+        Self { state, id }
+    }
+}
+
+impl Drop for SessionGuard {
+    fn drop(&mut self) {
+        self.state
+            .sessions
+            .lock()
+            .unwrap()
+            .retain(|s| s.id != self.id);
+    }
+}
+
+pub(crate) async fn create_browser_session(
+    opt: SessionOption,
+    state: StateRef,
+    shutdown_tx: Option<oneshot::Sender<()>>,
+) -> Result<Session, String> {
+    if state.is_full() {
+        return Err("too many sessions".into());
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let data_dir = format!("{}/{}", state.data_root.trim_end_matches("/"), id);
+
+    let config = BrowserConfigBuilder::default().user_data_dir(&data_dir);
+    let config = match opt.enable_cache {
+        true => config,
+        false => config.disable_cache(),
+    }
+    .viewport(Some(opt.view_port.clone()))
+    .build()
+    .map_err(|e| e.to_string())?;
+
+    let (browser, handler) = Browser::launch(config).await.map_err(|e| e.to_string())?;
+
+    let ws_url = browser.websocket_address().to_string();
+    log::info!("create session, id: {} dir: {} -> {}", id, data_dir, ws_url);
+
+    Ok(Session {
+        id,
+        data_dir,
+        ws_url,
+        view_port: opt.view_port,
+        cleanup: opt.cleanup,
+        enable_cache: opt.enable_cache,
+        shutdown_tx: RefCell::new(shutdown_tx),
+        browser: RefCell::new(Some(browser)),
+        handler: RefCell::new(Some(handler)),
+        created_at: SystemTime::now(),
+    })
 }
 
 /// Workflow
@@ -95,20 +187,11 @@ pub(crate) async fn create_session(
         }
     };
 
-    if state.is_full() {
-        return Response::builder()
-            .status(503)
-            .body(Body::from("too many sessions"))
-            .unwrap();
-    }
     match handle_session(ws, State(state)).await {
         Ok(r) => r,
         Err(e) => {
-            log::warn!("create session error: {}", e);
-            Response::builder()
-                .status(500)
-                .body(Body::from(e.to_string()))
-                .unwrap()
+            log::error!("handle_session error: {}", e);
+            Response::builder().status(500).body(Body::from(e)).unwrap()
         }
     }
 }
@@ -116,29 +199,22 @@ pub(crate) async fn create_session(
 pub(crate) async fn handle_session(
     ws: WebSocketUpgrade,
     State(state): State<StateRef>,
-) -> std::result::Result<Response, axum::Error> {
-    let config = BrowserConfigBuilder::default()
-        .build()
-        .map_err(|e| axum::Error::new(e))?;
+) -> Result<Response, String> {
+    let opt = SessionOption::default();
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let session = create_browser_session(opt, state.clone(), Some(shutdown_tx)).await?;
+    let mut browser: Browser = session.browser.take().ok_or_else(|| "browser is None")?;
+    let mut handler = session.handler.take().ok_or_else(|| "handler is None")?;
 
-    let (mut browser, mut handler) = Browser::launch(config)
+    let (upstream, _) = tokio_tungstenite::connect_async(&session.ws_url)
         .await
-        .map_err(|e| axum::Error::new(e))?;
-
-    let ws_url = browser.websocket_address().to_string();
-    let (upstream, _) = tokio_tungstenite::connect_async(&ws_url)
-        .await
-        .map_err(|e| axum::Error::new(e))?;
+        .map_err(|e| e.to_string())?;
 
     let (mut server_ws_tx, mut server_ws_rx) = upstream.split();
 
     let r = ws.on_upgrade(|client_stream| async move {
-        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-        let session = Session::new(&state.data_root, &ws_url, shutdown_tx);
         let id = session.id.clone();
-        log::info!("new session, {}", ws_url);
-
-        state.sessions.lock().unwrap().push(session);
+        let _guard = SessionGuard::new(state.clone(), id.clone(), session);
 
         let (mut client_ws_tx, mut client_ws_rx) = client_stream.split();
 
@@ -166,21 +242,13 @@ pub(crate) async fn handle_session(
             _ = server_to_client => {}
             _ = client_to_server => {}
             _ = async {
-                while let Some(_) = handler.next().await {
-                    continue;
-                }
+                while let Some(_) = handler.next().await {}
             } => { }
             _  = shutdown_rx => {
-                log::warn!("shutdown_rx shutdown id: {}", id);
+                log::info!("shutdown_rx shutdown id: {}", id);
             }
         }
-        state
-            .sessions
-            .lock()
-            .unwrap()
-            .retain(|s| s.ws_url != ws_url);
         browser.kill().await;
-        log::warn!("session closed id: {}", id);
     });
     Ok(r)
 }
@@ -193,6 +261,16 @@ pub(crate) async fn list_session(State(state): State<StateRef>) -> Json<Value> {
             json!({
                 "id": s.id,
                 "data_dir": s.data_dir,
+                "view_port": {
+                    "width": s.view_port.width,
+                    "height": s.view_port.height,
+                    "device_scale_factor": s.view_port.device_scale_factor,
+                    "emulating_mobile": s.view_port.emulating_mobile,
+                    "is_landscape": s.view_port.is_landscape,
+                    "has_touch": s.view_port.has_touch,
+                },
+                "cleanup": s.cleanup,
+                "enable_cache": s.enable_cache,
                 "created_at": s.created_at
             })
         })
@@ -200,26 +278,18 @@ pub(crate) async fn list_session(State(state): State<StateRef>) -> Json<Value> {
     Json(json!(data))
 }
 
-pub(crate) async fn kill_session(
-    Path(session_id): Path<String>,
-    State(state): State<StateRef>,
-) -> Response {
+pub(crate) async fn kill_session(Path(session_id): Path<String>, State(state): State<StateRef>) {
     state
         .sessions
         .lock()
         .unwrap()
         .iter()
-        .find(|s| s.ws_url == session_id)
-        .and_then(|s| s.shutdown_tx.lock().unwrap().take());
-
-    Response::builder()
-        .status(200)
-        .body(Body::from("ok"))
-        .unwrap()
+        .find(|s| s.id == session_id)
+        .and_then(|s| s.shutdown_tx.take());
 }
 
 pub(crate) async fn killall_session(State(state): State<StateRef>) {
     state.sessions.lock().unwrap().iter().for_each(|s| {
-        s.shutdown_tx.lock().unwrap().take();
+        s.shutdown_tx.take();
     });
 }
