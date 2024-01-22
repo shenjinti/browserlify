@@ -2,7 +2,7 @@ FROM rust:bookworm as builder
 RUN mkdir /build
 ADD . /build/
 WORKDIR /build
-ENV CARGO_REGISTRY_INDEX_GIT=https://rsproxy.cn/crates.io-index
+RUN mkdir -p .cargo && echo '[source.crates-io]\nreplace-with = "rsproxy-sparse"\n[source.rsproxy-sparse]\nregistry = "sparse+https://rsproxy.cn/index/"' > .cargo/config.toml
 RUN ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 RUN cargo build --release
 
