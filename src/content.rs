@@ -1,4 +1,5 @@
 use crate::{
+    devices::get_device,
     session::{create_browser_session, SessionGuard, SessionOption},
     StateRef,
 };
@@ -157,6 +158,7 @@ pub fn can_access(u: url::Url, state: StateRef) -> Result<url::Url, String> {
 }
 
 pub async fn extrace_page<C, Fut>(
+    cmd: &str,
     Query(params): Query<RenderParams>,
     State(state): State<StateRef>,
     callback: C,
@@ -172,9 +174,11 @@ where
     let host = u.host_str().map(str::to_lowercase).unwrap_or_default();
     let st = SystemTime::now();
 
+    let device = get_device(&params.emulating_device.clone().unwrap_or_default());
     let opt = SessionOption::default();
+
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let session = create_browser_session(opt, state.clone(), Some(shutdown_tx)).await?;
+    let session = create_browser_session(opt, device, state.clone(), Some(shutdown_tx)).await?;
     let mut browser: Browser = session.browser.take().ok_or_else(|| "window is None")?;
     let mut handler = session.handler.take().ok_or_else(|| "handler is None")?;
     let launch_usage = st.elapsed().unwrap_or_default();
@@ -244,7 +248,8 @@ where
     let extract_usage = st.elapsed().unwrap_or_default();
 
     log::info!(
-        "extract url: {}, launch: {:?}, extract: {:?}",
+        "{} url: {}, launch: {:?}, extract: {:?}",
+        cmd,
         u,
         launch_usage,
         extract_usage
@@ -265,6 +270,7 @@ pub async fn render_pdf(
     State(state): State<StateRef>,
 ) -> Result<Response, String> {
     extrace_page(
+        "pdf",
         Query(params),
         State(state),
         |host, params, _, page| async move {
@@ -284,6 +290,7 @@ pub async fn render_screenshot(
     State(state): State<StateRef>,
 ) -> Result<Response, String> {
     extrace_page(
+        "screenshot",
         Query(params),
         State(state),
         |host, params, _, page| async move {
@@ -307,21 +314,26 @@ pub async fn dump_text(
     Query(params): Query<RenderParams>,
     State(state): State<StateRef>,
 ) -> Result<Response, String> {
-    extrace_page(Query(params), State(state), |_, _, _, page| async move {
-        let content: String = page
-            .evaluate(
-                "{ let retVal = '';
+    extrace_page(
+        "text",
+        Query(params),
+        State(state),
+        |_, _, _, page| async move {
+            let content: String = page
+                .evaluate(
+                    "{ let retVal = '';
             if (document.documentElement) {
                 retVal = document.documentElement.innerText;
             }
             retVal}",
-            )
-            .await
-            .map_err(|e| e.to_string())?
-            .into_value()
-            .map_err(|e| e.to_string())?;
-        Ok((content.into(), format!("plain/text"), None))
-    })
+                )
+                .await
+                .map_err(|e| e.to_string())?
+                .into_value()
+                .map_err(|e| e.to_string())?;
+            Ok((content.into(), format!("plain/text"), None))
+        },
+    )
     .await
 }
 
@@ -329,9 +341,14 @@ pub async fn dump_html(
     Query(params): Query<RenderParams>,
     State(state): State<StateRef>,
 ) -> Result<Response, String> {
-    extrace_page(Query(params), State(state), |_, _, _, page| async move {
-        let content = page.content_bytes().await.map_err(|e| e.to_string())?;
-        Ok((content.into(), format!("text/html"), None))
-    })
+    extrace_page(
+        "html",
+        Query(params),
+        State(state),
+        |_, _, _, page| async move {
+            let content = page.content_bytes().await.map_err(|e| e.to_string())?;
+            Ok((content.into(), format!("text/html"), None))
+        },
+    )
     .await
 }

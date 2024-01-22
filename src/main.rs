@@ -11,6 +11,7 @@ use std::{
 };
 
 mod content;
+mod devices;
 mod session;
 #[cfg(test)]
 mod tests;

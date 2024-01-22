@@ -1,13 +1,21 @@
-use crate::StateRef;
+use crate::{
+    devices::{get_device, Device},
+    StateRef,
+};
 use axum::{
     body::Body,
-    extract::{ws, Path, State, WebSocketUpgrade},
+    extract::{ws, Path, Query, State, WebSocketUpgrade},
     response::Response,
     Json,
 };
-use chromiumoxide::{browser::BrowserConfigBuilder, handler::viewport::Viewport};
+use chromiumoxide::{
+    browser::BrowserConfigBuilder,
+    cdp::{browser_protocol::target::EventTargetCreated, de},
+    handler::viewport::{self, Viewport},
+};
 use chromiumoxide::{Browser, Handler};
 use futures::{SinkExt, StreamExt};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{cell::RefCell, time::SystemTime};
 use tokio::{select, sync::oneshot};
@@ -48,7 +56,7 @@ fn to_ts_message(msg: ws::Message) -> tungstenite::Message {
 
 #[derive(Debug, Clone)]
 pub(crate) struct SessionOption {
-    pub view_port: Viewport,
+    pub landscape: bool,
     pub cleanup: bool,
     pub enable_cache: bool,
 }
@@ -56,14 +64,7 @@ pub(crate) struct SessionOption {
 impl Default for SessionOption {
     fn default() -> Self {
         Self {
-            view_port: Viewport {
-                width: 1440,
-                height: 900,
-                device_scale_factor: None,
-                emulating_mobile: false,
-                is_landscape: false,
-                has_touch: false,
-            },
+            landscape: false,
             cleanup: true,
             enable_cache: false,
         }
@@ -74,7 +75,7 @@ impl Default for SessionOption {
 pub(crate) struct Session {
     pub(crate) id: String,
     data_dir: String,
-    view_port: Viewport,
+    device: Option<Device>,
     // cleanup data_dir when session closed
     cleanup: bool,
     enable_cache: bool,
@@ -83,6 +84,12 @@ pub(crate) struct Session {
     shutdown_tx: RefCell<Option<oneshot::Sender<()>>>,
     pub(crate) browser: RefCell<Option<Browser>>,
     pub(crate) handler: RefCell<Option<Handler>>,
+}
+
+#[derive(Deserialize)]
+pub struct CreateSessionParams {
+    #[serde(rename = "device")]
+    emulating_device: Option<String>,
 }
 
 impl Drop for Session {
@@ -132,6 +139,7 @@ impl Drop for SessionGuard {
 
 pub(crate) async fn create_browser_session(
     opt: SessionOption,
+    device: Option<Device>,
     state: StateRef,
     shutdown_tx: Option<oneshot::Sender<()>>,
 ) -> Result<Session, String> {
@@ -143,11 +151,19 @@ pub(crate) async fn create_browser_session(
     let data_dir = format!("{}/{}", state.data_root.trim_end_matches("/"), id);
 
     let config = BrowserConfigBuilder::default().user_data_dir(&data_dir);
+
     let config = match opt.enable_cache {
         true => config,
         false => config.disable_cache(),
+    };
+
+    let config = match device.as_ref() {
+        Some(d) => {
+            let viewport = d.get_viewport(opt.landscape);
+            config.viewport(viewport)
+        }
+        None => config,
     }
-    .viewport(Some(opt.view_port.clone()))
     .build()
     .map_err(|e| e.to_string())?;
 
@@ -156,11 +172,37 @@ pub(crate) async fn create_browser_session(
     let ws_url = browser.websocket_address().to_string();
     log::info!("create session, id: {} dir: {} -> {}", id, data_dir, ws_url);
 
+    // let mut page_from_target = browser
+    //     .event_listener::<EventTargetCreated>()
+    //     .await
+    //     .map_err(|e| e.to_string())?;
+
+    // let id_ref = id.clone();
+    // tokio::task::spawn(async move {
+    //     while let Some(event) = page_from_target.next().await {
+    //         if event.target_info.r#type == "page" {
+    //             let target_id = event.target_info.target_id.clone();
+    //             let page = match browser.get_page(target_id.clone()).await {
+    //                 Ok(page) => page,
+    //                 Err(e) => {
+    //                     log::error!(
+    //                         "get_page error, session:{} page: {} error: {}",
+    //                         id_ref,
+    //                         target_id.as_ref(),
+    //                         e
+    //                     );
+    //                     continue;
+    //                 }
+    //             };
+    //         }
+    //     }
+    // });
+
     Ok(Session {
         id,
         data_dir,
         ws_url,
-        view_port: opt.view_port,
+        device,
         cleanup: opt.cleanup,
         enable_cache: opt.enable_cache,
         shutdown_tx: RefCell::new(shutdown_tx),
@@ -176,6 +218,7 @@ pub(crate) async fn create_browser_session(
 ///     2.1 bridge websocket to chrome session
 pub(crate) async fn create_session(
     ws: Option<WebSocketUpgrade>,
+    Query(params): Query<CreateSessionParams>,
     State(state): State<StateRef>,
 ) -> Response {
     let ws = match ws {
@@ -188,7 +231,7 @@ pub(crate) async fn create_session(
         }
     };
 
-    match handle_session(ws, State(state)).await {
+    match handle_session(ws, Query(params), State(state)).await {
         Ok(r) => r,
         Err(e) => {
             log::error!("handle_session error: {}", e);
@@ -199,11 +242,13 @@ pub(crate) async fn create_session(
 
 pub(crate) async fn handle_session(
     ws: WebSocketUpgrade,
+    Query(params): Query<CreateSessionParams>,
     State(state): State<StateRef>,
 ) -> Result<Response, String> {
     let opt = SessionOption::default();
+    let device = get_device(&params.emulating_device.clone().unwrap_or_default());
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let session = create_browser_session(opt, state.clone(), Some(shutdown_tx)).await?;
+    let session = create_browser_session(opt, device, state.clone(), Some(shutdown_tx)).await?;
     let mut browser: Browser = session.browser.take().ok_or_else(|| "browser is None")?;
     let mut handler = session.handler.take().ok_or_else(|| "handler is None")?;
 
@@ -262,14 +307,7 @@ pub(crate) async fn list_session(State(state): State<StateRef>) -> Json<Value> {
             json!({
                 "id": s.id,
                 "data_dir": s.data_dir,
-                "view_port": {
-                    "width": s.view_port.width,
-                    "height": s.view_port.height,
-                    "device_scale_factor": s.view_port.device_scale_factor,
-                    "emulating_mobile": s.view_port.emulating_mobile,
-                    "is_landscape": s.view_port.is_landscape,
-                    "has_touch": s.view_port.has_touch,
-                },
+                "device": s.device,
                 "cleanup": s.cleanup,
                 "enable_cache": s.enable_cache,
                 "created_at": s.created_at
