@@ -1,7 +1,12 @@
 Browserlify  - browser as a service
 =======
 
-### How to run
+### How to run (via docker)
+```bash
+docker run --cap-add=SYS_ADMIN -p 9000:9000 -ti --rm shenjinti/browserlify
+```
+
+### Run via cargo & puppeteer
 ```bash
 $ cd browserlify
 $ cargo run --

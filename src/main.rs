@@ -24,7 +24,7 @@ struct Cli {
     #[clap(long, short, default_value = "0")]
     max_sessions: usize,
 
-    #[clap(long, default_value = "/tmp/chrome_server")]
+    #[clap(long, default_value = "/tmp/browserlify")]
     data_root: String,
 
     #[clap(long, default_value = "/")]

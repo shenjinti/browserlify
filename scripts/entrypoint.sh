@@ -6,5 +6,5 @@ if [ -f /app/fonts/local.conf ]; then
   fc-cache -fv
 fi
 
-/app/bin/browserlify $@
+/app/browserlify $@
 
