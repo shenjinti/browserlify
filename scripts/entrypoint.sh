@@ -1,5 +1,9 @@
 #!/bin/sh
 set -e
-fc-cache -fv
+
+if [ -f ~/.config/fontconfig/fonts.conf ]; then
+  fc-cache -fv
+fi
+
 /app/browserlify $@
 
