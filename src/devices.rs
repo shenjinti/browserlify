@@ -140,8 +140,8 @@ lazy_static! {
         },
     };
 
-    static ref LAPTOP_1920_SCREEN: Device = Device {
-        title: "HiDPI Laptop 1920 x 1080".to_string(),
+    static ref LAPTOP_2K_SCREEN: Device = Device {
+        title: "2K Laptop 1920 x 1080".to_string(),
         user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_0_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36"
             .to_string(),
         has_touch: false,
@@ -162,7 +162,7 @@ lazy_static! {
 
     static ref LAPTOP_4K_SCREEN: Device = Device {
         title: "4K Laptop 1920 x 1080".to_string(),
-        user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_0_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36"
+        user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"
             .to_string(),
         has_touch: false,
         emulating_mobile: false,
@@ -242,6 +242,46 @@ lazy_static! {
 
     static ref IPHONE_13: Device = Device {
         title: "iPhone 13".to_string(),
+        user_agent: "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1"
+            .to_string(),
+        has_touch: true,
+        emulating_mobile: true,
+        accept_language: "en".to_string(),
+        screen: DeviceScreen {
+            device_pixel_ratio: 3.0,
+            horizontal: ScreenSize {
+                width: 844,
+                height: 390,
+            },
+            vertical: ScreenSize {
+                width: 390,
+                height: 844,
+            },
+        },
+    };
+
+    static ref IPHONE_13_MAX: Device = Device {
+        title: "iPhone 13 Max".to_string(),
+        user_agent: "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1"
+            .to_string(),
+        has_touch: true,
+        emulating_mobile: true,
+        accept_language: "en".to_string(),
+        screen: DeviceScreen {
+            device_pixel_ratio: 3.0,
+            horizontal: ScreenSize {
+                width: 926,
+                height: 428,
+            },
+            vertical: ScreenSize {
+                width: 428,
+                height: 926,
+            },
+        },
+    };
+
+    static ref IPHONE_13_PRO: Device = Device {
+        title: "iPhone 13 Pro".to_string(),
         user_agent: "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1"
             .to_string(),
         has_touch: true,
@@ -379,6 +419,26 @@ lazy_static! {
             },
         },
     };
+
+    static ref HUAWEI_MATE: Device = Device {
+        title: "Huawei mate".to_string(),
+        user_agent: "Mozilla/5.0 (Linux; Android 10; LYA-L29) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.101 Mobile Safari/537.36"
+            .to_string(),
+        has_touch: true,
+        emulating_mobile: true,
+        accept_language: "en".to_string(),
+        screen: DeviceScreen {
+            device_pixel_ratio: 3.0,
+            horizontal: ScreenSize {
+                width: 412,
+                height: 869,
+            },
+            vertical: ScreenSize {
+                width: 869,
+                height: 412,
+            },
+        },
+    };
 }
 
 pub fn get_device(name: &str) -> Option<Device> {
@@ -387,18 +447,21 @@ pub fn get_device(name: &str) -> Option<Device> {
         "laptop-hidpi" => Some(LAPTOP_WITH_HIDPI_SCREEN.clone()),
         "laptop-mdpi" => Some(LAPTOP_WITH_MDPI_SCREEN.clone()),
         "wide-hidpi" => Some(WIDE_HIDPI_SCREEN.clone()),
-        "laptop-1920" => Some(LAPTOP_1920_SCREEN.clone()),
+        "2k" => Some(LAPTOP_2K_SCREEN.clone()),
         "4k" => Some(LAPTOP_4K_SCREEN.clone()),
         "iphone-6-7-8" => Some(IPHONE_6_7_8.clone()),
         "iphone-6-7-8-plus" => Some(IPHONE_6_7_8_PLUS.clone()),
         "iphone-x" => Some(IPHONE_X.clone()),
         "iphone-13" => Some(IPHONE_13.clone()),
+        "iphone-13-pro" => Some(IPHONE_13_PRO.clone()),
+        "iphone-13-max" => Some(IPHONE_13_MAX.clone()),
         "ipad-mini" => Some(IPAD_MINI.clone()),
         "ipad" => Some(IPAD.clone()),
         "ipad-pro" => Some(IPAD_PRO.clone()),
         "nexus-10" => Some(NEXUS_10.clone()),
         "surface-duo" => Some(SURFACE_DUO.clone()),
         "galaxy-note-3" => Some(GALAXY_NOTE_3.clone()),
+        "huawei-mate" => Some(HUAWEI_MATE.clone()),
         _ => None,
     }
 }

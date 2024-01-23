@@ -2,7 +2,7 @@
 set -e
 
 if [ -f /app/fonts/local.conf ]; then
-  rm /etc/fonts/local.conf && ln -s /app/fonts/local.conf /etc/fonts/local.conf
+  mkdir -p ~/.config/fontconfig/ && ln -s /app/fonts/local.conf ~/.config/fontconfig/local.conf
   fc-cache -fv
 fi
 
