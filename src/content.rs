@@ -54,14 +54,19 @@ pub struct RenderParams {
     #[serde(rename = "device")]
     emulating_device: Option<String>,
 
-    #[serde(rename = "javascript")]
-    enable_javascript: Option<bool>,
+    #[serde(rename = "disable_link")]
+    disable_link: Option<bool>,
 
     #[serde(rename = "header_footer")]
     display_header_footer: Option<bool>,
 
     #[serde(rename = "paper")]
     paper_size: Option<String>,
+
+    #[serde(rename = "header")]
+    header_template: Option<String>,
+    #[serde(rename = "footer")]
+    footer_template: Option<String>,
 
     format: Option<String>,
     quality: Option<i64>,
@@ -72,6 +77,31 @@ pub struct RenderParams {
 impl Into<PrintToPdfParams> for RenderParams {
     fn into(self) -> PrintToPdfParams {
         let mut params = PrintToPdfParams::default();
+
+        match self.paper_size.unwrap_or_default().to_lowercase().as_str() {
+            "a3" => {
+                params.paper_width = Some(11.69);
+                params.paper_height = Some(16.54);
+            }
+            "a5" => {
+                params.paper_width = Some(5.83);
+                params.paper_height = Some(8.27);
+            }
+            "legal" => {
+                params.paper_width = Some(8.5);
+                params.paper_height = Some(14.0);
+            }
+            "letter" => {
+                params.paper_width = Some(8.5);
+                params.paper_height = Some(11.0);
+            }
+            _ => {
+                // A4
+                params.paper_width = Some(8.27);
+                params.paper_height = Some(11.69);
+            }
+        }
+
         params.display_header_footer = self.display_header_footer;
         params.print_background = self.print_background;
         params.landscape = self.landscape;
@@ -85,6 +115,8 @@ impl Into<PrintToPdfParams> for RenderParams {
         params.scale = self.scale;
         params.paper_width = self.paper_width;
         params.paper_height = self.paper_height;
+        params.header_template = self.header_template;
+        params.footer_template = self.footer_template;
         params
     }
 }
@@ -278,6 +310,15 @@ pub async fn render_pdf(
                 Some(name) => name.clone(),
                 None => format!("{host}.pdf"),
             };
+
+            if params.disable_link.unwrap_or_default() {
+                page.evaluate(
+                    "document.querySelectorAll('a').forEach((el) => el.setAttribute('href', '#'))",
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+            }
+
             let content = page.pdf(params.into()).await.map_err(|e| e.to_string())?;
             Ok((content, "application/pdf".to_string(), Some(file_name)))
         },
