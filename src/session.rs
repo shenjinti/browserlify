@@ -1,18 +1,16 @@
 use crate::{
     devices::{get_device, Device},
+    error::Error,
     StateRef,
 };
 use axum::{
     body::Body,
     extract::{ws, Path, Query, State, WebSocketUpgrade},
-    response::Response,
+    http::StatusCode,
+    response::{IntoResponse, Response},
     Json,
 };
-use chromiumoxide::{
-    browser::BrowserConfigBuilder,
-    cdp::{browser_protocol::target::EventTargetCreated, de},
-    handler::viewport::{self, Viewport},
-};
+use chromiumoxide::browser::BrowserConfigBuilder;
 use chromiumoxide::{Browser, Handler};
 use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
@@ -142,9 +140,12 @@ pub(crate) async fn create_browser_session(
     device: Option<Device>,
     state: StateRef,
     shutdown_tx: Option<oneshot::Sender<()>>,
-) -> Result<Session, String> {
+) -> Result<Session, Error> {
     if state.is_full() {
-        return Err("too many sessions".into());
+        return Err(Error::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "too many sessions",
+        ));
     }
 
     let id = uuid::Uuid::new_v4().to_string();
@@ -165,9 +166,9 @@ pub(crate) async fn create_browser_session(
         None => config,
     }
     .build()
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| Error::new(StatusCode::SERVICE_UNAVAILABLE, &e))?;
 
-    let (browser, handler) = Browser::launch(config).await.map_err(|e| e.to_string())?;
+    let (browser, handler) = Browser::launch(config).await?;
 
     let ws_url = browser.websocket_address().to_string();
     log::info!("create session, id: {} dir: {} -> {}", id, data_dir, ws_url);
@@ -235,7 +236,7 @@ pub(crate) async fn create_session(
         Ok(r) => r,
         Err(e) => {
             log::error!("handle_session error: {}", e);
-            Response::builder().status(500).body(Body::from(e)).unwrap()
+            e.into_response()
         }
     }
 }
@@ -244,7 +245,7 @@ pub(crate) async fn handle_session(
     ws: WebSocketUpgrade,
     Query(params): Query<CreateSessionParams>,
     State(state): State<StateRef>,
-) -> Result<Response, String> {
+) -> Result<Response, Error> {
     let opt = SessionOption::default();
     let device = get_device(&params.emulating_device.clone().unwrap_or_default());
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
@@ -254,7 +255,7 @@ pub(crate) async fn handle_session(
 
     let (upstream, _) = tokio_tungstenite::connect_async(&session.ws_url)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| Error::new(StatusCode::BAD_GATEWAY, &e.to_string()))?;
 
     let (mut server_ws_tx, mut server_ws_rx) = upstream.split();
 

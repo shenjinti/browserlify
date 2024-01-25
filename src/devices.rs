@@ -24,26 +24,6 @@ pub struct Device {
 }
 
 impl Device {
-    pub fn new(
-        title: String,
-        has_touch: bool,
-        emulating_mobile: bool,
-        user_agent: String,
-        accept_language: String,
-        screen: DeviceScreen,
-    ) -> Self {
-        Self {
-            title,
-            has_touch,
-            emulating_mobile,
-            user_agent,
-            accept_language,
-            screen,
-        }
-    }
-}
-
-impl Device {
     pub fn get_viewport(&self, landscape: bool) -> viewport::Viewport {
         let (width, height) = if landscape {
             (self.screen.horizontal.width, self.screen.horizontal.height)

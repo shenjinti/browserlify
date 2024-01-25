@@ -9,9 +9,9 @@ use std::{
     io::Write,
     sync::{Arc, Mutex},
 };
-
 mod content;
 mod devices;
+mod error;
 mod session;
 #[cfg(test)]
 mod tests;

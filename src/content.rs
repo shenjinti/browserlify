@@ -1,3 +1,4 @@
+use crate::error::Error;
 use crate::{
     devices::get_device,
     session::{create_browser_session, SessionGuard, SessionOption},
@@ -155,9 +156,12 @@ impl Into<ScreenshotParams> for RenderParams {
     }
 }
 
-pub fn can_access(u: url::Url, state: StateRef) -> Result<url::Url, String> {
+pub fn can_access(u: url::Url, state: StateRef) -> Result<url::Url, Error> {
     if u.scheme() != "http" && u.scheme() != "https" {
-        return Err("invalid url".to_string());
+        return Err(Error::new(
+            StatusCode::BAD_REQUEST,
+            "only support http/https",
+        ));
     }
 
     if state.enable_private_ip {
@@ -165,25 +169,26 @@ pub fn can_access(u: url::Url, state: StateRef) -> Result<url::Url, String> {
     }
     let host = u.host_str().map(str::to_lowercase).unwrap_or_default();
     if host == "localhost" {
-        return Err("not allow localhost".to_string());
+        return Err(Error::new(StatusCode::BAD_REQUEST, "not allow localhost"));
     }
 
     match host.parse::<std::net::IpAddr>() {
-        Ok(addr) => match addr {
-            std::net::IpAddr::V4(v4_addr) => {
-                if v4_addr.is_loopback() {
-                    return Err("not allow localhost".to_string());
-                }
-                if !state.enable_private_ip && v4_addr.is_private() {
-                    return Err("not allow private ip".to_string());
-                }
+        Ok(addr) => {
+            if addr.is_loopback() {
+                return Err(Error::new(
+                    StatusCode::BAD_REQUEST,
+                    "not allow loopback address",
+                ));
             }
-            std::net::IpAddr::V6(v6_addr) => {
-                if v6_addr.is_loopback() {
-                    return Err("not allow localhost".to_string());
+            match addr {
+                std::net::IpAddr::V4(v4_addr) => {
+                    if !state.enable_private_ip && v4_addr.is_private() {
+                        return Err(Error::new(StatusCode::BAD_REQUEST, "not allow private ip"));
+                    }
                 }
+                _ => {}
             }
-        },
+        }
         Err(_) => {}
     }
     Ok(u)
@@ -194,13 +199,13 @@ pub async fn extrace_page<C, Fut>(
     Query(params): Query<RenderParams>,
     State(state): State<StateRef>,
     callback: C,
-) -> Result<Response, String>
+) -> Result<Response, Error>
 where
     C: FnOnce(String, RenderParams, StateRef, Page) -> Fut + Send + 'static,
     Fut: Future<Output = Result<(Vec<u8>, String, Option<String>), String>> + Send + 'static,
 {
     let u = url::Url::parse(params.url.as_str())
-        .map_err(|e| e.to_string())
+        .map_err(|e| Error::new(StatusCode::BAD_REQUEST, &e.to_string()))
         .and_then(|u| can_access(u, state.clone()))?;
 
     let host = u.host_str().map(str::to_lowercase).unwrap_or_default();
@@ -273,7 +278,8 @@ where
 
     browser.kill().await;
 
-    let (content, content_type, file_name) = r?;
+    let (content, content_type, file_name) =
+        r.map_err(|e| Error::new(StatusCode::SERVICE_UNAVAILABLE, &e))?;
     let resp = Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", content_type);
@@ -295,12 +301,12 @@ where
         None => resp,
     }
     .body(Body::from(content))
-    .map_err(|e| e.to_string())
+    .map_err(|e| Error::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))
 }
 pub async fn render_pdf(
     Query(params): Query<RenderParams>,
     State(state): State<StateRef>,
-) -> Result<Response, String> {
+) -> Result<Response, Error> {
     extrace_page(
         "pdf",
         Query(params),
@@ -329,7 +335,7 @@ pub async fn render_pdf(
 pub async fn render_screenshot(
     Query(params): Query<RenderParams>,
     State(state): State<StateRef>,
-) -> Result<Response, String> {
+) -> Result<Response, Error> {
     extrace_page(
         "screenshot",
         Query(params),
@@ -354,7 +360,7 @@ pub async fn render_screenshot(
 pub async fn dump_text(
     Query(params): Query<RenderParams>,
     State(state): State<StateRef>,
-) -> Result<Response, String> {
+) -> Result<Response, Error> {
     extrace_page(
         "text",
         Query(params),
@@ -381,7 +387,7 @@ pub async fn dump_text(
 pub async fn dump_html(
     Query(params): Query<RenderParams>,
     State(state): State<StateRef>,
-) -> Result<Response, String> {
+) -> Result<Response, Error> {
     extrace_page(
         "html",
         Query(params),
