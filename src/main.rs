@@ -136,7 +136,7 @@ async fn main() -> std::io::Result<()> {
         )
         .route(
             "/text",
-            post(content::dump_text_get).post(content::dump_text_post),
+            get(content::dump_text_get).post(content::dump_text_post),
         )
         .route(
             "/html",
