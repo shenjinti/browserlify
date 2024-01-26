@@ -10,6 +10,10 @@ use axum::{
     http::StatusCode,
     response::Response,
 };
+use chromiumoxide::cdp::browser_protocol::network::{
+    EventLoadingFailed, EventLoadingFinished, EventRequestWillBeSent,
+};
+use chromiumoxide::handler::network::NetworkEvent;
 use chromiumoxide::{
     cdp::browser_protocol::page::{CaptureScreenshotFormat, PrintToPdfParams, Viewport},
     page::ScreenshotParams,
@@ -17,7 +21,8 @@ use chromiumoxide::{
 };
 use futures::{Future, StreamExt};
 use serde::Deserialize;
-use std::time::SystemTime;
+use std::collections::HashMap;
+use std::time::{Duration, SystemTime};
 use tokio::{select, sync::oneshot, time};
 
 #[derive(Deserialize)]
@@ -31,6 +36,16 @@ pub struct RenderParams {
 
     wait_load: Option<u64>,
     wait_selector: Option<String>,
+
+    wait_images: Option<bool>,
+
+    #[serde(rename = "network_idle")]
+    wait_network_idle: Option<u64>,
+
+    #[serde(rename = "page_ready")]
+    wait_page_ready: Option<bool>,
+    scroll_bottom: Option<u64>, // scroll to bottom before render, in seconds
+    scroll_interval: Option<u64>,
 
     #[serde(rename = "width")]
     paper_width: Option<f64>,
@@ -194,6 +209,50 @@ pub fn can_access(u: url::Url, state: StateRef) -> Result<url::Url, Error> {
     Ok(u)
 }
 
+// wait for network idle
+// 1. inspect network request
+// 2. wait for all request finished
+// 3. wait for some time
+async fn wait_page_network_idle(page: Page, timeout: Duration) -> Result<bool, Error> {
+    let mut request_will_be_sent = page.event_listener::<EventRequestWillBeSent>().await?;
+    let mut request_loading_finished = page.event_listener::<EventLoadingFinished>().await?;
+    let mut request_loading_failed = page.event_listener::<EventLoadingFailed>().await?;
+    let mut requests = HashMap::new();
+
+    let mut last_request_time = None;
+
+    loop {
+        select! {
+            event = request_will_be_sent.next() => {
+                last_request_time = None;
+                if let Some(event) = event {
+                    requests.insert(event.request_id.clone(), event.request.url.clone());
+                }
+            }
+            event = request_loading_finished.next() => {
+                last_request_time = Some(SystemTime::now());
+                if let Some(event) = event {
+                    requests.remove(&event.request_id);
+                }
+            }
+            event = request_loading_failed.next() => {
+                last_request_time = Some(SystemTime::now());
+                if let Some(event) = event {
+                    requests.remove(&event.request_id);
+                }
+            }
+            _ = time::sleep(timeout) => {
+            }
+        }
+        if let Some(last_request_time) = last_request_time {
+            if requests.is_empty() && last_request_time.elapsed().unwrap_or_default() > timeout {
+                break;
+            }
+        }
+    }
+    Ok(requests.is_empty())
+}
+
 pub async fn extrace_page<C, Fut>(
     cmd: &str,
     Query(params): Query<RenderParams>,
@@ -226,6 +285,8 @@ where
         .unwrap_or(state.max_timeout)
         .max(state.max_timeout);
 
+    const SLEEP_INTERVAL: u64 = 100;
+
     let _guard = SessionGuard::new(state.clone(), session);
     let render_loop = async {
         let page = browser
@@ -233,31 +294,112 @@ where
             .await
             .map_err(|e| e.to_string())?;
 
-        if let Some(wait_load) = params.wait_load {
-            select! {
-                _ = time::sleep(time::Duration::from_secs(wait_load)) => {}
-                _ = page.wait_for_navigation() => {}
-            };
-        } else {
-            page.wait_for_navigation().await.ok();
-        }
+        let wait_something = async {
+            // 1. wait for network idle
+            // 2. wait for selector
+            // 3. wait for images
+            //if params.wait_network_idle.unwrap_or_default() {
+            if let Some(timeout) = params.wait_network_idle {
+                match wait_page_network_idle(page.clone(), Duration::from_millis(timeout)).await {
+                    Ok(done) => {
+                        if !done {
+                            log::warn!("{} {} wait network idle timeout", cmd, params.url);
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("{} {} wait network idle, error: {}", cmd, params.url, e);
+                    }
+                }
+            }
 
-        if let Some(selector) = &params.wait_selector {
-            let wait_timeout = params.wait_load.unwrap_or(state.max_timeout / 2);
-            select! {
-                _ = time::sleep(time::Duration::from_secs(wait_timeout)) => {}
-                _ = async {
-                    loop {
+            page.wait_for_navigation().await.ok();
+
+            if params.wait_page_ready.is_some() {
+                loop {
+                    match page.evaluate("document.readyState").await {
+                        Ok(v) => {
+                            if v.into_value::<String>().unwrap_or_default() == "complete" {
+                                break;
+                            }
+                        }
+                        Err(_) => {}
+                    }
+                    time::sleep(time::Duration::from_millis(SLEEP_INTERVAL)).await;
+                }
+            }
+
+            if params.scroll_bottom.is_some() || params.wait_images.is_some() {
+                let scroll_bottom = params.scroll_bottom.unwrap_or_default();
+                // get scroll height
+                match page
+                    .evaluate("document.body.scrollHeight")
+                    .await
+                    .map(|v| v.into_value::<i64>())
+                {
+                    Ok(Ok(scroll_height)) => {
+                        let scroll_interval = params.scroll_interval.unwrap_or(100);
+                        let mut total_times = ((scroll_bottom / scroll_interval) as usize).min(1);
+                        let scroll_step = scroll_height / total_times as i64;
+
+                        while total_times > 0 {
+                            total_times -= 1;
+                            let current = scroll_height - scroll_step * total_times as i64;
+                            page.evaluate(format!("window.scrollTo(0, {});", current))
+                                .await
+                                .ok();
+                            time::sleep(time::Duration::from_millis(scroll_interval)).await;
+                        }
+                    }
+                    _ => {}
+                };
+            }
+
+            if let Some(selector) = &params.wait_selector {
+                loop {
                     match page.find_element(selector.as_str()).await {
                         Ok(_) => break,
                         Err(_) => {}
                     }
-                    time::sleep(time::Duration::from_millis(20)).await;
+                    time::sleep(time::Duration::from_millis(SLEEP_INTERVAL)).await;
                 }
-                } => {}
             }
-        }
 
+            if params.wait_images.unwrap_or_default() {
+                loop {
+                    match page
+                        .evaluate("document.images.length")
+                        .await
+                        .map(|r| r.into_value::<i64>())
+                    {
+                        Ok(Ok(v)) => {
+                            if v == 0 {
+                                break;
+                            }
+                            match page
+                                .evaluate("Array.from(document.images).every(i => i.complete)")
+                                .await
+                                .map(|v| v.into_value::<bool>())
+                            {
+                                Ok(Ok(done)) => {
+                                    if done {
+                                        break;
+                                    }
+                                }
+                                _ => break,
+                            }
+                        }
+                        _ => break,
+                    }
+                    time::sleep(time::Duration::from_millis(SLEEP_INTERVAL)).await;
+                }
+            }
+        };
+
+        let wait_timeout = params.wait_load.unwrap_or(15 * 1000).max(state.max_timeout); // 15 seconds
+        select! {
+            _ = time::sleep(time::Duration::from_millis(wait_timeout)) => {}
+            _ = wait_something => {}
+        }
         callback(host.to_string(), params, state, page).await
     };
 

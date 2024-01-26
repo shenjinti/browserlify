@@ -83,7 +83,7 @@ impl AppState {
             max_sessions,
             data_root,
             enable_private_ip: false,
-            max_timeout: 60, // 60 seconds
+            max_timeout: 60 * 1000, // 60 seconds
         }
     }
     pub fn is_full(&self) -> bool {
