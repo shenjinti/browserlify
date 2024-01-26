@@ -16,10 +16,10 @@ async fn serve_test_server(addr: String) {
         .route("/list", get(session::list_session))
         .route("/kill/:session_id", post(session::kill_session))
         .route("/kill_all", post(session::killall_session))
-        .route("/pdf", get(content::render_pdf))
-        .route("/screenshot", get(content::render_screenshot))
-        .route("/text", get(content::dump_text))
-        .route("/html", get(content::dump_html))
+        .route("/pdf", get(content::render_pdf_get))
+        .route("/screenshot", get(content::render_screenshot_get))
+        .route("/text", get(content::dump_text_get))
+        .route("/html", get(content::dump_html_get))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();

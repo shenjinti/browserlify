@@ -126,10 +126,22 @@ async fn main() -> std::io::Result<()> {
         .route("/list", get(session::list_session))
         .route("/kill/:session_id", post(session::kill_session))
         .route("/kill_all", post(session::killall_session))
-        .route("/pdf", get(content::render_pdf))
-        .route("/screenshot", get(content::render_screenshot))
-        .route("/text", get(content::dump_text))
-        .route("/html", get(content::dump_html))
+        .route(
+            "/pdf",
+            get(content::render_pdf_get).post(content::render_pdf_post),
+        )
+        .route(
+            "/screenshot",
+            get(content::render_screenshot_get).post(content::render_screenshot_post),
+        )
+        .route(
+            "/text",
+            post(content::dump_text_get).post(content::dump_text_post),
+        )
+        .route(
+            "/html",
+            get(content::dump_html_get).post(content::dump_html_post),
+        )
         .with_state(state);
 
     if !args.disable_cors {

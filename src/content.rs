@@ -4,6 +4,7 @@ use crate::{
     session::{create_browser_session, SessionGuard, SessionOption},
     StateRef,
 };
+use axum::Json;
 use axum::{
     body::Body,
     extract::{Query, State},
@@ -29,13 +30,15 @@ pub struct RenderParams {
     url: String,
 
     file_name: Option<String>,
-    // total timeout in seconds
+    // total timeout in milliseconds
     #[serde(rename = "timeout")]
     timeout: Option<u64>,
 
     wait_load: Option<u64>,
+    #[serde(rename = "selector")]
     wait_selector: Option<String>,
 
+    #[serde(rename = "images")]
     wait_images: Option<bool>,
 
     #[serde(rename = "network_idle")]
@@ -71,9 +74,6 @@ pub struct RenderParams {
 
     #[serde(rename = "disable_link")]
     disable_link: Option<bool>,
-
-    #[serde(rename = "header_footer")]
-    display_header_footer: Option<bool>,
 
     #[serde(rename = "paper")]
     paper_size: Option<String>,
@@ -119,7 +119,6 @@ impl Into<PrintToPdfParams> for RenderParams {
             }
         }
 
-        params.display_header_footer = self.display_header_footer;
         params.print_background = self.print_background;
         params.landscape = self.landscape;
         params.page_ranges = self.page_ranges;
@@ -132,8 +131,16 @@ impl Into<PrintToPdfParams> for RenderParams {
         params.scale = self.scale;
         params.paper_width = self.paper_width;
         params.paper_height = self.paper_height;
-        params.header_template = self.header_template;
-        params.footer_template = self.footer_template;
+
+        if self.header_template.is_some() {
+            params.display_header_footer = Some(true);
+            params.header_template = self.header_template;
+        }
+
+        if self.footer_template.is_some() {
+            params.display_header_footer = Some(true);
+            params.footer_template = self.footer_template;
+        }
         params
     }
 }
@@ -343,8 +350,8 @@ async fn wait_page_ready(page: Page, check_interval: u64) {
 
 pub async fn extrace_page<C, Fut>(
     cmd: &str,
-    Query(params): Query<RenderParams>,
-    State(state): State<StateRef>,
+    params: RenderParams,
+    state: StateRef,
     callback: C,
 ) -> Result<Response, Error>
 where
@@ -488,10 +495,22 @@ where
     .body(Body::from(content))
     .map_err(|e| Error::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))
 }
-pub async fn render_pdf(
+
+pub async fn render_pdf_get(
     Query(params): Query<RenderParams>,
     State(state): State<StateRef>,
 ) -> Result<Response, Error> {
+    render_pdf(params, state).await
+}
+
+pub async fn render_pdf_post(
+    State(state): State<StateRef>,
+    Json(body): Json<RenderParams>,
+) -> Result<Response, Error> {
+    render_pdf(body, state).await
+}
+
+async fn render_pdf(params: RenderParams, state: StateRef) -> Result<Response, Error> {
     let author = match &params.author {
         Some(author) => author.clone(),
         None => match &state.author {
@@ -500,60 +519,66 @@ pub async fn render_pdf(
         },
     };
 
-    extrace_page(
-        "pdf",
-        Query(params),
-        State(state),
-        |host, params, _, page| async move {
-            let file_name = match &params.file_name {
-                Some(name) => name.clone(),
-                None => format!("{host}.pdf"),
-            };
+    extrace_page("pdf", params, state, |host, params, _, page| async move {
+        let file_name = match &params.file_name {
+            Some(name) => name.clone(),
+            None => format!("{host}.pdf"),
+        };
 
-            if params.disable_link.unwrap_or_default() {
-                page.evaluate(
-                    "document.querySelectorAll('a').forEach((el) => el.setAttribute('href', '#'))",
-                )
-                .await
-                .map_err(|e| e.to_string())?;
-            }
+        if params.disable_link.unwrap_or_default() {
+            page.evaluate(
+                "document.querySelectorAll('a').forEach((el) => el.setAttribute('href', '#'))",
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        }
 
-            let content = page.pdf(params.into()).await.map_err(|e| e.to_string())?;
-            let content = match lopdf::Document::load_mem(&content) {
-                Ok(mut doc) => {
-                    let mut info = lopdf::Dictionary::new();
-                    info.set(
-                        "Author",
-                        lopdf::Object::String(author.into(), lopdf::StringFormat::Literal),
-                    );
-                    let value = doc.add_object(lopdf::Object::Dictionary(info));
-                    doc.trailer.set("Info", value);
+        let content = page.pdf(params.into()).await.map_err(|e| e.to_string())?;
+        let content = match lopdf::Document::load_mem(&content) {
+            Ok(mut doc) => {
+                let mut info = lopdf::Dictionary::new();
+                info.set(
+                    "Author",
+                    lopdf::Object::String(author.into(), lopdf::StringFormat::Literal),
+                );
+                let value = doc.add_object(lopdf::Object::Dictionary(info));
+                doc.trailer.set("Info", value);
 
-                    let mut new_content = Vec::new();
-                    match doc.save_to(&mut new_content) {
-                        Ok(_) => new_content,
-                        Err(e) => {
-                            log::error!("pdf save error: {}", e);
-                            content
-                        }
+                let mut new_content = Vec::new();
+                match doc.save_to(&mut new_content) {
+                    Ok(_) => new_content,
+                    Err(e) => {
+                        log::error!("pdf save error: {}", e);
+                        content
                     }
                 }
-                Err(_) => content,
-            };
-            Ok((content, "application/pdf".to_string(), Some(file_name)))
-        },
-    )
+            }
+            Err(_) => content,
+        };
+        Ok((content, "application/pdf".to_string(), Some(file_name)))
+    })
     .await
 }
 
-pub async fn render_screenshot(
+pub async fn render_screenshot_get(
     Query(params): Query<RenderParams>,
     State(state): State<StateRef>,
 ) -> Result<Response, Error> {
+    render_screenshot(params, state).await
+}
+
+pub async fn render_screenshot_post(
+    State(state): State<StateRef>,
+    Json(body): Json<RenderParams>,
+) -> Result<Response, Error> {
+    render_screenshot(body, state).await
+}
+
+async fn render_screenshot(params: RenderParams, state: StateRef) -> Result<Response, Error> {
     extrace_page(
         "screenshot",
-        Query(params),
-        State(state),
+        params,
+        state,
         |host, params, _, page| async move {
             let file_ext = match &params.format {
                 Some(format) => format.clone(),
@@ -571,45 +596,55 @@ pub async fn render_screenshot(
     .await
 }
 
-pub async fn dump_text(
+pub async fn dump_text_get(
     Query(params): Query<RenderParams>,
     State(state): State<StateRef>,
 ) -> Result<Response, Error> {
-    extrace_page(
-        "text",
-        Query(params),
-        State(state),
-        |_, _, _, page| async move {
-            let content: String = page
-                .evaluate(
-                    "{ let retVal = '';
+    dump_text(params, state).await
+}
+pub async fn dump_text_post(
+    State(state): State<StateRef>,
+    Json(body): Json<RenderParams>,
+) -> Result<Response, Error> {
+    dump_text(body, state).await
+}
+
+async fn dump_text(params: RenderParams, state: StateRef) -> Result<Response, Error> {
+    extrace_page("text", params, state, |_, _, _, page| async move {
+        let content: String = page
+            .evaluate(
+                "{ let retVal = '';
             if (document.documentElement) {
                 retVal = document.documentElement.innerText;
             }
             retVal}",
-                )
-                .await
-                .map_err(|e| e.to_string())?
-                .into_value()
-                .map_err(|e| e.to_string())?;
-            Ok((content.into(), format!("plain/text"), None))
-        },
-    )
+            )
+            .await
+            .map_err(|e| e.to_string())?
+            .into_value()
+            .map_err(|e| e.to_string())?;
+        Ok((content.into(), format!("plain/text"), None))
+    })
     .await
 }
 
-pub async fn dump_html(
+pub async fn dump_html_get(
     Query(params): Query<RenderParams>,
     State(state): State<StateRef>,
 ) -> Result<Response, Error> {
-    extrace_page(
-        "html",
-        Query(params),
-        State(state),
-        |_, _, _, page| async move {
-            let content = page.content_bytes().await.map_err(|e| e.to_string())?;
-            Ok((content.into(), format!("text/html"), None))
-        },
-    )
+    dump_html(params, state).await
+}
+pub async fn dump_html_post(
+    State(state): State<StateRef>,
+    Json(body): Json<RenderParams>,
+) -> Result<Response, Error> {
+    dump_html(body, state).await
+}
+
+async fn dump_html(params: RenderParams, state: StateRef) -> Result<Response, Error> {
+    extrace_page("html", params, state, |_, _, _, page| async move {
+        let content = page.content_bytes().await.map_err(|e| e.to_string())?;
+        Ok((content.into(), format!("text/html"), None))
+    })
     .await
 }
