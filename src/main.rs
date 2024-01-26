@@ -9,6 +9,7 @@ use std::{
     io::Write,
     sync::{Arc, Mutex},
 };
+use tower_http::cors::{Any, CorsLayer};
 mod content;
 mod devices;
 mod error;
@@ -39,6 +40,9 @@ struct Cli {
 
     #[clap(long, default_value = "60", help = "max timeout in seconds")]
     max_timeout: u64,
+
+    #[clap(long, default_value = "false", help = "disable cors")]
+    disable_cors: bool,
 }
 
 fn init_log(level: String, is_test: bool) {
@@ -110,7 +114,8 @@ async fn main() -> std::io::Result<()> {
         enable_private_ip: args.enable_private_ip,
         max_timeout: args.max_timeout,
     });
-    let router = Router::new()
+
+    let mut router = Router::new()
         .route("/", get(session::create_session))
         .route("/list", get(session::list_session))
         .route("/kill/:session_id", post(session::kill_session))
@@ -120,6 +125,16 @@ async fn main() -> std::io::Result<()> {
         .route("/text", get(content::dump_text))
         .route("/html", get(content::dump_html))
         .with_state(state);
+
+    if !args.disable_cors {
+        router = router.layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_credentials(true)
+                .allow_headers(Any)
+                .allow_methods(Any),
+        )
+    }
 
     let app = Router::new().nest(&prefix, router);
 
