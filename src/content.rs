@@ -350,6 +350,26 @@ where
                     }
                     _ => {}
                 };
+
+                if params.wait_images.is_some() && scroll_bottom == 0 {
+                    // reset scroll to top
+                    page.evaluate("window.scrollTo(0, 0);").await.ok();
+                    for _ in 0..3 {
+                        match page
+                            .evaluate("window.scrollY")
+                            .await
+                            .map(|v| v.into_value::<i64>())
+                        {
+                            Ok(Ok(scroll_y)) => {
+                                if scroll_y == 0 {
+                                    break;
+                                }
+                            }
+                            _ => break,
+                        }
+                        time::sleep(time::Duration::from_millis(SLEEP_INTERVAL)).await;
+                    }
+                }
             }
 
             if let Some(selector) = &params.wait_selector {
