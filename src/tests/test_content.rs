@@ -8,12 +8,40 @@ async fn test_render_pdf() {
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     let target = "https://browserlify.com/?from=unittest";
-    let url = format!("http://{}/pdf?url={}", addr, urlencoding::encode(target));
+    let url = format!(
+        "http://{}/pdf?url={}&author=browserlify_test",
+        addr,
+        urlencoding::encode(target)
+    );
 
     let resp = reqwest::get(&url).await.expect("get api/pdf fail");
     assert!(resp.status().is_success());
     assert_eq!(resp.headers()["content-type"], "application/pdf");
     server.abort();
+    let content = resp.bytes().await.expect("get pdf content fail");
+    let doc = lopdf::Document::load_mem(&content).expect("load pdf fail");
+    // get author from pdf
+    let info = doc
+        .trailer
+        .get(b"Info")
+        .and_then(|obj| doc.get_object(obj.as_reference().unwrap()))
+        .expect("get info fail");
+    match info {
+        lopdf::Object::Dictionary(dict) => {
+            let author = dict.get(b"Author").expect("get author fail");
+            match author {
+                lopdf::Object::String(author, _) => {
+                    assert_eq!(author, b"browserlify_test");
+                }
+                _ => {
+                    panic!("author is not string");
+                }
+            }
+        }
+        _ => {
+            panic!("info is not dictionary");
+        }
+    }
 }
 
 #[tokio::test]

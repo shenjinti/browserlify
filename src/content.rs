@@ -87,6 +87,8 @@ pub struct RenderParams {
     quality: Option<i64>,
     clip: Option<String>,
     full_page: Option<bool>,
+
+    author: Option<String>,
 }
 
 impl Into<PrintToPdfParams> for RenderParams {
@@ -467,6 +469,14 @@ pub async fn render_pdf(
     Query(params): Query<RenderParams>,
     State(state): State<StateRef>,
 ) -> Result<Response, Error> {
+    let author = match &params.author {
+        Some(author) => author.clone(),
+        None => match &state.author {
+            Some(author) => author.clone(),
+            None => "Browserlify".to_string(),
+        },
+    };
+
     extrace_page(
         "pdf",
         Query(params),
@@ -486,6 +496,27 @@ pub async fn render_pdf(
             }
 
             let content = page.pdf(params.into()).await.map_err(|e| e.to_string())?;
+            let content = match lopdf::Document::load_mem(&content) {
+                Ok(mut doc) => {
+                    let mut info = lopdf::Dictionary::new();
+                    info.set(
+                        "Author",
+                        lopdf::Object::String(author.into(), lopdf::StringFormat::Literal),
+                    );
+                    let value = doc.add_object(lopdf::Object::Dictionary(info));
+                    doc.trailer.set("Info", value);
+
+                    let mut new_content = Vec::new();
+                    match doc.save_to(&mut new_content) {
+                        Ok(_) => new_content,
+                        Err(e) => {
+                            log::error!("pdf save error: {}", e);
+                            content
+                        }
+                    }
+                }
+                Err(_) => content,
+            };
             Ok((content, "application/pdf".to_string(), Some(file_name)))
         },
     )

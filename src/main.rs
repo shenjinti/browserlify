@@ -43,6 +43,9 @@ struct Cli {
 
     #[clap(long, default_value = "false", help = "disable cors")]
     disable_cors: bool,
+
+    #[clap(long, help = "default author")]
+    author: Option<String>,
 }
 
 fn init_log(level: String, is_test: bool) {
@@ -78,6 +81,7 @@ pub struct AppState {
     data_root: String,
     enable_private_ip: bool,
     max_timeout: u64,
+    author: Option<String>,
 }
 
 impl AppState {
@@ -88,6 +92,7 @@ impl AppState {
             data_root,
             enable_private_ip: false,
             max_timeout: 60 * 1000, // 60 seconds
+            author: None,
         }
     }
     pub fn is_full(&self) -> bool {
@@ -113,6 +118,7 @@ async fn main() -> std::io::Result<()> {
         sessions: Arc::new(Mutex::new(Vec::new())),
         enable_private_ip: args.enable_private_ip,
         max_timeout: args.max_timeout,
+        author: args.author,
     });
 
     let mut router = Router::new()
