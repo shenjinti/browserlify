@@ -130,7 +130,6 @@ async fn main() -> std::io::Result<()> {
         router = router.layer(
             CorsLayer::new()
                 .allow_origin(Any)
-                .allow_credentials(true)
                 .allow_headers(Any)
                 .allow_methods(Any),
         )
