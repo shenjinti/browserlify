@@ -18,6 +18,8 @@ async fn test_render_pdf() {
 
 #[tokio::test]
 async fn test_render_screenshot() {
+    assert_eq!(0.max(1), 1);
+    assert_eq!(2.max(1), 2);
     init_log("info".to_string(), false);
     let addr = "127.0.0.1:9005";
     let server = tokio::spawn(serve_test_server(addr.to_string()));
@@ -25,7 +27,7 @@ async fn test_render_screenshot() {
 
     let target = "https://browserlify.com/?from=unittest";
     let url = format!(
-        "http://{}/screenshot?url={}",
+        "http://{}/screenshot?url={}&wait_images=true",
         addr,
         urlencoding::encode(target)
     );

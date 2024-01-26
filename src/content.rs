@@ -13,7 +13,6 @@ use axum::{
 use chromiumoxide::cdp::browser_protocol::network::{
     EventLoadingFailed, EventLoadingFinished, EventRequestWillBeSent,
 };
-use chromiumoxide::handler::network::NetworkEvent;
 use chromiumoxide::{
     cdp::browser_protocol::page::{CaptureScreenshotFormat, PrintToPdfParams, Viewport},
     page::ScreenshotParams,
@@ -298,7 +297,6 @@ where
             // 1. wait for network idle
             // 2. wait for selector
             // 3. wait for images
-            //if params.wait_network_idle.unwrap_or_default() {
             if let Some(timeout) = params.wait_network_idle {
                 match wait_page_network_idle(page.clone(), Duration::from_millis(timeout)).await {
                     Ok(done) => {
@@ -338,7 +336,7 @@ where
                 {
                     Ok(Ok(scroll_height)) => {
                         let scroll_interval = params.scroll_interval.unwrap_or(100);
-                        let mut total_times = ((scroll_bottom / scroll_interval) as usize).min(1);
+                        let mut total_times = ((scroll_bottom / scroll_interval) as usize).max(1);
                         let scroll_step = scroll_height / total_times as i64;
 
                         while total_times > 0 {
