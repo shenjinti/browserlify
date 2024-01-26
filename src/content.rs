@@ -254,6 +254,93 @@ async fn wait_page_network_idle(page: Page, timeout: Duration) -> Result<bool, E
     Ok(requests.is_empty())
 }
 
+async fn scroll_to_bottom(page: Page, timeout: u64, scroll_interval: u64) {
+    // get scroll height
+    match page
+        .evaluate("document.body.scrollHeight")
+        .await
+        .map(|v| v.into_value::<i64>())
+    {
+        Ok(Ok(scroll_height)) => {
+            let mut total_times = ((timeout / scroll_interval) as usize).max(1);
+            let scroll_step = scroll_height / total_times as i64;
+
+            while total_times > 0 {
+                total_times -= 1;
+                let current = scroll_height - scroll_step * total_times as i64;
+                page.evaluate(format!("window.scrollTo(0, {});", current))
+                    .await
+                    .ok();
+                time::sleep(time::Duration::from_millis(scroll_interval)).await;
+            }
+        }
+        _ => {}
+    }
+}
+
+async fn scroll_to_top(page: Page, check_interval: u64) {
+    page.evaluate("window.scrollTo(0, 0);").await.ok();
+    loop {
+        match page
+            .evaluate("window.scrollY")
+            .await
+            .map(|v| v.into_value::<i64>())
+        {
+            Ok(Ok(scroll_y)) => {
+                if scroll_y == 0 {
+                    break;
+                }
+            }
+            _ => break,
+        }
+        time::sleep(time::Duration::from_millis(check_interval)).await;
+    }
+}
+
+async fn wait_images_loaded(page: Page, check_interval: u64) {
+    loop {
+        match page
+            .evaluate("document.images.length")
+            .await
+            .map(|r| r.into_value::<i64>())
+        {
+            Ok(Ok(v)) => {
+                if v == 0 {
+                    break;
+                }
+                match page
+                    .evaluate("Array.from(document.images).every(i => i.complete)")
+                    .await
+                    .map(|v| v.into_value::<bool>())
+                {
+                    Ok(Ok(done)) => {
+                        if done {
+                            break;
+                        }
+                    }
+                    _ => break,
+                }
+            }
+            _ => break,
+        }
+        time::sleep(time::Duration::from_millis(check_interval)).await;
+    }
+}
+
+async fn wait_page_ready(page: Page, check_interval: u64) {
+    loop {
+        match page.evaluate("document.readyState").await {
+            Ok(v) => {
+                if v.into_value::<String>().unwrap_or_default() == "complete" {
+                    break;
+                }
+            }
+            Err(_) => {}
+        }
+        time::sleep(time::Duration::from_millis(check_interval)).await;
+    }
+}
+
 pub async fn extrace_page<C, Fut>(
     cmd: &str,
     Query(params): Query<RenderParams>,
@@ -286,7 +373,7 @@ where
         .unwrap_or(state.max_timeout)
         .max(state.max_timeout);
 
-    const SLEEP_INTERVAL: u64 = 100;
+    const SLEEP_INTERVAL: u64 = 50;
 
     let _guard = SessionGuard::new(state.clone(), session);
     let render_loop = async {
@@ -315,61 +402,23 @@ where
             page.wait_for_navigation().await.ok();
 
             if params.wait_page_ready.is_some() {
-                loop {
-                    match page.evaluate("document.readyState").await {
-                        Ok(v) => {
-                            if v.into_value::<String>().unwrap_or_default() == "complete" {
-                                break;
-                            }
-                        }
-                        Err(_) => {}
-                    }
-                    time::sleep(time::Duration::from_millis(SLEEP_INTERVAL)).await;
-                }
+                wait_page_ready(page.clone(), SLEEP_INTERVAL).await;
             }
 
             if params.scroll_bottom.is_some() || params.wait_images.is_some() {
                 let scroll_bottom = params.scroll_bottom.unwrap_or_default();
-                // get scroll height
-                match page
-                    .evaluate("document.body.scrollHeight")
-                    .await
-                    .map(|v| v.into_value::<i64>())
-                {
-                    Ok(Ok(scroll_height)) => {
-                        let scroll_interval = params.scroll_interval.unwrap_or(100);
-                        let mut total_times = ((scroll_bottom / scroll_interval) as usize).max(1);
-                        let scroll_step = scroll_height / total_times as i64;
-
-                        while total_times > 0 {
-                            total_times -= 1;
-                            let current = scroll_height - scroll_step * total_times as i64;
-                            page.evaluate(format!("window.scrollTo(0, {});", current))
-                                .await
-                                .ok();
-                            time::sleep(time::Duration::from_millis(scroll_interval)).await;
-                        }
-                    }
-                    _ => {}
-                };
+                scroll_to_bottom(
+                    page.clone(),
+                    scroll_bottom,
+                    params.scroll_interval.unwrap_or(200),
+                )
+                .await;
 
                 if params.wait_images.is_some() && scroll_bottom == 0 {
                     // reset scroll to top
-                    page.evaluate("window.scrollTo(0, 0);").await.ok();
-                    for _ in 0..3 {
-                        match page
-                            .evaluate("window.scrollY")
-                            .await
-                            .map(|v| v.into_value::<i64>())
-                        {
-                            Ok(Ok(scroll_y)) => {
-                                if scroll_y == 0 {
-                                    break;
-                                }
-                            }
-                            _ => break,
-                        }
-                        time::sleep(time::Duration::from_millis(SLEEP_INTERVAL)).await;
+                    select! {
+                        _ = scroll_to_top(page.clone(), 1000) => {}
+                    _ = time::sleep(time::Duration::from_millis(500)) => {}
                     }
                 }
             }
@@ -385,33 +434,7 @@ where
             }
 
             if params.wait_images.unwrap_or_default() {
-                loop {
-                    match page
-                        .evaluate("document.images.length")
-                        .await
-                        .map(|r| r.into_value::<i64>())
-                    {
-                        Ok(Ok(v)) => {
-                            if v == 0 {
-                                break;
-                            }
-                            match page
-                                .evaluate("Array.from(document.images).every(i => i.complete)")
-                                .await
-                                .map(|v| v.into_value::<bool>())
-                            {
-                                Ok(Ok(done)) => {
-                                    if done {
-                                        break;
-                                    }
-                                }
-                                _ => break,
-                            }
-                        }
-                        _ => break,
-                    }
-                    time::sleep(time::Duration::from_millis(SLEEP_INTERVAL)).await;
-                }
+                wait_images_loaded(page.clone(), SLEEP_INTERVAL).await;
             }
         };
 
