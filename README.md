@@ -3,13 +3,16 @@ Browserlify  - browser as a service
 
 ### How to run (via docker)
 ```bash
-docker run --cap-add=SYS_ADMIN -p 9000:9000 -ti --rm shenjinti/browserlify
+# WIP: docker image is not ready yet
+#docker run  -ti --rm --privileged -p 9000:9000 shenjinti/browserlify
 ```
 
-### Run via cargo & puppeteer
+### Run via cargo & puppeteer (local development)
+> Note: you need to install puppeteer and rust first
+
 ```bash
 $ cd browserlify
-$ cargo run --
+$ cargo run
 ```
 Test via puppeteer
 ```javascript
@@ -28,7 +31,7 @@ Test via puppeteer
 
 ### Content API
 - The parameters:
-```json
+```javascript
 {
   "url": "https://example.org",
 

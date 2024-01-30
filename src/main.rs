@@ -13,6 +13,7 @@ use tower_http::cors::{Any, CorsLayer};
 mod content;
 mod devices;
 mod error;
+mod remote;
 mod session;
 #[cfg(test)]
 mod tests;
@@ -95,6 +96,13 @@ impl AppState {
             author: None,
         }
     }
+
+    pub fn allow_private_ip(&self) -> Self {
+        let mut state = self.clone();
+        state.enable_private_ip = true;
+        state
+    }
+
     pub fn is_full(&self) -> bool {
         if self.max_sessions <= 0 {
             return false;
@@ -104,24 +112,8 @@ impl AppState {
 }
 type StateRef = Arc<AppState>;
 
-#[tokio::main]
-async fn main() -> std::io::Result<()> {
-    let args = Cli::parse();
-    let addr = args.addr;
-    let prefix = args.prefix;
-
-    init_log(args.log_level, false);
-
-    let state = Arc::new(AppState {
-        data_root: args.data_root,
-        max_sessions: args.max_sessions,
-        sessions: Arc::new(Mutex::new(Vec::new())),
-        enable_private_ip: args.enable_private_ip,
-        max_timeout: args.max_timeout,
-        author: args.author,
-    });
-
-    let mut router = Router::new()
+fn create_router(state: StateRef) -> Router {
+    Router::new()
         .route("/", get(session::create_session))
         .route("/list", get(session::list_session))
         .route("/kill/:session_id", post(session::kill_session))
@@ -142,7 +134,28 @@ async fn main() -> std::io::Result<()> {
             "/html",
             get(content::dump_html_get).post(content::dump_html_post),
         )
-        .with_state(state);
+        .route("/firefox/:session_id", get(remote::firefox_remote))
+        .route("/chrome/:session_id", get(remote::chrome_remote))
+        .with_state(state)
+}
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    let args = Cli::parse();
+    let addr = args.addr;
+    let prefix = args.prefix;
+
+    init_log(args.log_level, false);
+
+    let state = Arc::new(AppState {
+        data_root: args.data_root,
+        max_sessions: args.max_sessions,
+        sessions: Arc::new(Mutex::new(Vec::new())),
+        enable_private_ip: args.enable_private_ip,
+        max_timeout: args.max_timeout,
+        author: args.author,
+    });
+
+    let mut router = create_router(state);
 
     if !args.disable_cors {
         router = router.layer(

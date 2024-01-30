@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::{
     devices::get_device,
-    session::{create_browser_session, SessionGuard, SessionOption},
+    session::{create_headless_browser_session, SessionGuard, SessionOption},
     StateRef,
 };
 use axum::Json;
@@ -369,7 +369,8 @@ where
     let opt = SessionOption::default();
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let session = create_browser_session(opt, device, state.clone(), Some(shutdown_tx)).await?;
+    let session =
+        create_headless_browser_session(opt, device, state.clone(), Some(shutdown_tx)).await?;
     let mut browser: Browser = session.browser.take().ok_or_else(|| "window is None")?;
     let mut handler = session.handler.take().ok_or_else(|| "handler is None")?;
     let launch_usage = st.elapsed().unwrap_or_default();

@@ -70,8 +70,15 @@ impl Default for SessionOption {
 }
 
 #[derive(Debug)]
+pub(crate) enum SessionType {
+    Headless,
+    //RemoteChrome,
+    //RemoteFirefox,
+}
+#[derive(Debug)]
 pub(crate) struct Session {
     pub(crate) id: String,
+    pub(crate) r#type: SessionType,
     data_dir: String,
     device: Option<Device>,
     // cleanup data_dir when session closed
@@ -135,7 +142,7 @@ impl Drop for SessionGuard {
     }
 }
 
-pub(crate) async fn create_browser_session(
+pub(crate) async fn create_headless_browser_session(
     opt: SessionOption,
     device: Option<Device>,
     state: StateRef,
@@ -173,34 +180,9 @@ pub(crate) async fn create_browser_session(
     let ws_url = browser.websocket_address().to_string();
     log::info!("create session, id: {} dir: {} -> {}", id, data_dir, ws_url);
 
-    // let mut page_from_target = browser
-    //     .event_listener::<EventTargetCreated>()
-    //     .await
-    //     .map_err(|e| e.to_string())?;
-
-    // let id_ref = id.clone();
-    // tokio::task::spawn(async move {
-    //     while let Some(event) = page_from_target.next().await {
-    //         if event.target_info.r#type == "page" {
-    //             let target_id = event.target_info.target_id.clone();
-    //             let page = match browser.get_page(target_id.clone()).await {
-    //                 Ok(page) => page,
-    //                 Err(e) => {
-    //                     log::error!(
-    //                         "get_page error, session:{} page: {} error: {}",
-    //                         id_ref,
-    //                         target_id.as_ref(),
-    //                         e
-    //                     );
-    //                     continue;
-    //                 }
-    //             };
-    //         }
-    //     }
-    // });
-
     Ok(Session {
         id,
+        r#type: SessionType::Headless,
         data_dir,
         ws_url,
         device,
@@ -249,7 +231,8 @@ pub(crate) async fn handle_session(
     let opt = SessionOption::default();
     let device = get_device(&params.emulating_device.clone().unwrap_or_default());
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let session = create_browser_session(opt, device, state.clone(), Some(shutdown_tx)).await?;
+    let session =
+        create_headless_browser_session(opt, device, state.clone(), Some(shutdown_tx)).await?;
     let mut browser: Browser = session.browser.take().ok_or_else(|| "browser is None")?;
     let mut handler = session.handler.take().ok_or_else(|| "handler is None")?;
 
@@ -307,6 +290,7 @@ pub(crate) async fn list_session(State(state): State<StateRef>) -> Json<Value> {
         .map(|s| {
             json!({
                 "id": s.id,
+                "type": format!("{:?}", s.r#type),
                 "data_dir": s.data_dir,
                 "device": s.device,
                 "cleanup": s.cleanup,
