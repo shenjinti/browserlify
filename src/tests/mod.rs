@@ -41,7 +41,7 @@ async fn serve_test_server(shutdown_rx: oneshot::Receiver<()>, addr: String) {
 
 async fn serve_test_http_server(
     shutdown_rx: oneshot::Receiver<()>,
-) -> Result<String, crate::error::Error> {
+) -> Result<String, crate::Error> {
     let addr = open_port();
     let listener = tokio::net::TcpListener::bind(&addr.clone()).await.unwrap();
 

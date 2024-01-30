@@ -10,13 +10,18 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tower_http::cors::{Any, CorsLayer};
+#[cfg(feature = "content")]
 mod content;
 mod devices;
 mod error;
+#[cfg(feature = "headless")]
+mod headless;
+#[cfg(feature = "remote")]
 mod remote;
 mod session;
 #[cfg(test)]
 mod tests;
+pub use error::Error;
 
 #[derive(Parser, Debug)]
 #[command(version)]
@@ -113,11 +118,16 @@ impl AppState {
 type StateRef = Arc<AppState>;
 
 fn create_router(state: StateRef) -> Router {
-    Router::new()
-        .route("/", get(session::create_session))
+    let router = Router::new()
         .route("/list", get(session::list_session))
         .route("/kill/:session_id", post(session::kill_session))
-        .route("/kill_all", post(session::killall_session))
+        .route("/kill_all", post(session::killall_session));
+
+    #[cfg(feature = "headless")]
+    let router = router.route("/", get(headless::create_headless_session));
+
+    #[cfg(feature = "content")]
+    let router = router
         .route(
             "/pdf",
             get(content::render_pdf_get).post(content::render_pdf_post),
@@ -133,10 +143,14 @@ fn create_router(state: StateRef) -> Router {
         .route(
             "/html",
             get(content::dump_html_get).post(content::dump_html_post),
-        )
-        .route("/firefox/:session_id", get(remote::firefox_remote))
-        .route("/chrome/:session_id", get(remote::chrome_remote))
-        .with_state(state)
+        );
+
+    #[cfg(feature = "remote")]
+    let router = router
+        .route("/remote/:session_id", get(remote::handle_remote))
+        .route("/remote", post(remote::create_remote));
+
+    router.with_state(state)
 }
 #[tokio::main]
 async fn main() -> std::io::Result<()> {

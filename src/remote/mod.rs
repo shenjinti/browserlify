@@ -1,5 +1,9 @@
-pub(crate) mod chrome;
-pub(crate) mod firefox;
+use crate::StateRef;
+use axum::{extract::State, response::Response};
 
-pub(crate) use chrome::chrome_remote;
-pub(crate) use firefox::firefox_remote;
+pub(crate) async fn create_remote(State(state): State<StateRef>) -> Response {
+    todo!()
+}
+pub(crate) async fn handle_remote(State(state): State<StateRef>) -> Response {
+    todo!()
+}

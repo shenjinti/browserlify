@@ -1,7 +1,8 @@
-use crate::error::Error;
+use crate::headless::create_headless_browser_session;
+use crate::Error;
 use crate::{
     devices::get_device,
-    session::{create_headless_browser_session, SessionGuard, SessionOption},
+    session::{SessionGuard, SessionOption},
     StateRef,
 };
 use axum::Json;
