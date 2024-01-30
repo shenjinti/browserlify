@@ -91,7 +91,7 @@ pub(crate) async fn create_headless_browser_session(
         id,
         r#type: SessionType::Headless,
         data_dir,
-        ws_url,
+        endpoint: ws_url,
         device,
         cleanup: opt.cleanup,
         enable_cache: opt.enable_cache,
@@ -143,7 +143,7 @@ pub(crate) async fn handle_headless_session(
     let mut browser: Browser = session.browser.take().ok_or_else(|| "browser is None")?;
     let mut handler = session.handler.take().ok_or_else(|| "handler is None")?;
 
-    let (upstream, _) = tokio_tungstenite::connect_async(&session.ws_url)
+    let (upstream, _) = tokio_tungstenite::connect_async(&session.endpoint)
         .await
         .map_err(|e| Error::new(StatusCode::BAD_GATEWAY, &e.to_string()))?;
 

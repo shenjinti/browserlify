@@ -20,7 +20,7 @@ RUN apt-get update -y && apt-get install -y ca-certificates tzdata chromium wget
     fonts-freefont-ttf \
     fonts-thai-tlwg \
     fonts-indic \
-    fontconfig
+    fontconfig x11vnc xfvb
 
 RUN rm -rf /var/cache/* \
     && apt-get -qq clean \

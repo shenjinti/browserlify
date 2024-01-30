@@ -54,3 +54,21 @@ impl From<&str> for Error {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, err)
     }
 }
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, &err.to_string())
+    }
+}
+
+impl From<serde_json::Error> for Error {
+    fn from(err: serde_json::Error) -> Self {
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, &err.to_string())
+    }
+}
+
+impl From<url::ParseError> for Error {
+    fn from(err: url::ParseError) -> Self {
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, &err.to_string())
+    }
+}

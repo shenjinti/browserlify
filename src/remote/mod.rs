@@ -1,9 +1,248 @@
-use crate::StateRef;
-use axum::{extract::State, response::Response};
+use std::os;
 
-pub(crate) async fn create_remote(State(state): State<StateRef>) -> Response {
-    todo!()
+use crate::{session::kill_session, StateRef};
+use axum::{
+    extract::{Path, State, WebSocketUpgrade},
+    response::Response,
+    Json,
+};
+use futures::{SinkExt, StreamExt};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    select,
+};
+
+use self::x11vnc::{create_x11_session, X11SessionOption};
+mod x11vnc;
+const REMOTE_SUFFIX: &str = ".remote.json";
+
+#[derive(Deserialize)]
+pub struct CreateRemoteParams {
+    pub name: Option<String>,
 }
-pub(crate) async fn handle_remote(State(state): State<StateRef>) -> Response {
-    todo!()
+
+#[derive(Deserialize, Serialize)]
+struct RemoteInfo {
+    pub id: String,
+    pub name: Option<String>,
+    pub created_at: String,
+    pub screen: Option<String>,
+    pub binary: Option<String>,
+}
+
+pub(crate) async fn list_remote(
+    State(state): State<StateRef>,
+) -> Result<Json<Value>, crate::Error> {
+    let root = state.data_root.clone();
+    let mut remotes = Vec::new();
+    let mut entries = tokio::fs::read_dir(root).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        if path.is_dir() {
+            let remote_file = path.join(REMOTE_SUFFIX);
+            match tokio::fs::read_to_string(&remote_file).await {
+                Ok(data) => {
+                    let remote_info: RemoteInfo = serde_json::from_str(&data)?;
+                    remotes.push(remote_info);
+                }
+                Err(e) => {
+                    log::error!(
+                        "read remote file error remote: {:?} error: {}",
+                        remote_file,
+                        e
+                    );
+                    continue;
+                }
+            };
+        }
+    }
+    Ok(Json(json!(remotes)))
+}
+
+pub(crate) async fn create_remote(
+    State(state): State<StateRef>,
+    Json(params): Json<CreateRemoteParams>,
+) -> Result<Json<Value>, crate::Error> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let data_root = std::path::Path::new(&state.data_root);
+    let remote_dir = data_root.join(&id);
+
+    if remote_dir.exists() {
+        return Err(crate::Error::new(
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "remote dir exists",
+        ));
+    }
+
+    tokio::fs::create_dir_all(&remote_dir).await?;
+
+    let remote_file = remote_dir.join(REMOTE_SUFFIX);
+    let remote_info = RemoteInfo {
+        id: id.clone(),
+        name: params.name,
+        created_at: chrono::Local::now().to_rfc3339(),
+        screen: None,
+        binary: None,
+    };
+    let data = serde_json::to_string_pretty(&remote_info)?;
+    tokio::fs::write(&remote_file, data).await?;
+    Ok(Json(json!(remote_info)))
+}
+
+pub(crate) async fn connect_remote(
+    ws: WebSocketUpgrade,
+    Path(remote_id): Path<String>,
+    State(state): State<StateRef>,
+) -> Result<Response, crate::Error> {
+    let data_root = std::path::Path::new(&state.data_root);
+    let remote_dir = data_root.join(&remote_id);
+    if !remote_dir.exists() {
+        return Err(crate::Error::new(
+            axum::http::StatusCode::BAD_GATEWAY,
+            "remote not exists",
+        ));
+    }
+
+    let endpoint = match state
+        .sessions
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|s| s.id == remote_id)
+    {
+        Some(s) => s.endpoint.clone(),
+        None => {
+            return Err(crate::Error::new(
+                axum::http::StatusCode::BAD_GATEWAY,
+                "session is shutdown",
+            ));
+        }
+    };
+    // parse endponit
+    let addr = url::Url::parse(&endpoint)?
+        .socket_addrs(|| None)?
+        .first()
+        .ok_or_else(|| crate::Error::new(axum::http::StatusCode::BAD_GATEWAY, "target invalid"))?
+        .clone();
+
+    // connect to remote
+    let mut target = tokio::net::TcpStream::connect(addr).await?;
+    let r = ws.on_upgrade(|client_stream| async move {
+        let (mut client_ws_tx, mut client_ws_rx) = client_stream.split();
+        let (mut server_rx, mut server_tx) = target.split();
+        let id = remote_id.clone();
+
+        let server_to_client = async {
+            let mut buf = [0u8; 8192];
+            while let Ok(n) = server_rx.read(&mut buf).await {
+                if n == 0 {
+                    break;
+                }
+                if let Err(e) = client_ws_tx.send(buf.to_vec().into()).await {
+                    log::error!("client_ws_tx.send id: {} error: {}", id, e);
+                    break;
+                }
+            }
+        };
+
+        let client_to_server = async {
+            while let Some(Ok(msg)) = client_ws_rx.next().await {
+                let buf = msg.into_data();
+                if let Err(e) = server_tx.write(&buf).await {
+                    log::error!("server_tx.write id: {} error: {}", id, e);
+                    break;
+                }
+            }
+        };
+        select! {
+            _ = server_to_client => {}
+            _ = client_to_server => {}
+        }
+        log::info!("connect_remote id: {} exit endponit: {}", id, endpoint);
+    });
+    Ok(r)
+}
+
+pub(crate) async fn stop_remote(
+    Path(remote_id): Path<String>,
+    State(state): State<StateRef>,
+) -> Result<Response, crate::Error> {
+    let data_root = std::path::Path::new(&state.data_root);
+    let remote_dir = data_root.join(&remote_id);
+    if !remote_dir.exists() {
+        return Err(crate::Error::new(
+            axum::http::StatusCode::BAD_GATEWAY,
+            "remote not exists",
+        ));
+    }
+    // stop session first
+    kill_session(Path(remote_id.clone()), State(state.clone())).await;
+    Ok(Response::new("ok".into()))
+}
+
+pub(crate) async fn start_remote(
+    Path(remote_id): Path<String>,
+    State(state): State<StateRef>,
+) -> Result<Response, crate::Error> {
+    let data_root = std::path::Path::new(&state.data_root);
+    let remote_dir = data_root.join(&remote_id);
+    if !remote_dir.exists() {
+        return Err(crate::Error::new(
+            axum::http::StatusCode::BAD_GATEWAY,
+            "remote not exists",
+        ));
+    }
+
+    match state
+        .sessions
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|s| s.id == remote_id)
+    {
+        Some(_) => {
+            return Err(crate::Error::new(
+                axum::http::StatusCode::BAD_GATEWAY,
+                "session is shutdown",
+            ))
+        }
+        None => {}
+    };
+
+    // load remote info
+    let remote_file = remote_dir.join(REMOTE_SUFFIX);
+    let data = tokio::fs::read_to_string(&remote_file).await?;
+    let remote_info: RemoteInfo = serde_json::from_str(&data)?;
+    let opt = X11SessionOption {
+        id: remote_id.clone(),
+        data_dir: remote_dir.to_str().unwrap().to_string(),
+        screen: remote_info.screen,
+        binary: remote_info.binary,
+        lc_ctype: std::env::var("LC_CTYPE").ok(),
+        timezone: std::env::var("TZ").ok(),
+    };
+
+    let session = create_x11_session(opt, state.clone()).await?;
+    state.sessions.lock().unwrap().push(session);
+    Ok(Response::new("ok".into()))
+}
+
+pub(crate) async fn remove_remote(
+    Path(remote_id): Path<String>,
+    State(state): State<StateRef>,
+) -> Result<Response, crate::Error> {
+    let data_root = std::path::Path::new(&state.data_root);
+    let remote_dir = data_root.join(&remote_id);
+    if !remote_dir.exists() {
+        return Err(crate::Error::new(
+            axum::http::StatusCode::BAD_GATEWAY,
+            "remote not exists",
+        ));
+    }
+    // stop session first
+    kill_session(Path(remote_id.clone()), State(state.clone())).await;
+    tokio::fs::remove_dir_all(&remote_dir).await?;
+    Ok(Response::new("ok".into()))
 }

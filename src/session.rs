@@ -42,7 +42,7 @@ pub(crate) struct Session {
     pub(crate) cleanup: bool,
     pub(crate) enable_cache: bool,
     pub(crate) created_at: SystemTime,
-    pub(crate) ws_url: String,
+    pub(crate) endpoint: String, // ws:// or vnc://
     pub(crate) shutdown_tx: RefCell<Option<oneshot::Sender<()>>>,
     pub(crate) browser: RefCell<Option<Browser>>,
     pub(crate) handler: RefCell<Option<Handler>>,
@@ -98,6 +98,7 @@ impl Drop for SessionGuard {
             .retain(|s| s.id != self.id);
     }
 }
+
 pub(crate) async fn list_session(State(state): State<StateRef>) -> Json<Value> {
     let sessions = state.sessions.lock().unwrap();
     let data = sessions
@@ -131,4 +132,9 @@ pub(crate) async fn killall_session(State(state): State<StateRef>) {
     state.sessions.lock().unwrap().iter().for_each(|s| {
         s.shutdown_tx.take();
     });
+}
+
+/// Take a screenshot of the current browser (headless or remote)
+pub(crate) async fn screen_session(Path(session_id): Path<String>, State(state): State<StateRef>) {
+    todo!()
 }

@@ -427,7 +427,7 @@ where
                     // reset scroll to top
                     select! {
                         _ = scroll_to_top(page.clone(), 1000) => {}
-                    _ = time::sleep(time::Duration::from_millis(500)) => {}
+                        _ = time::sleep(time::Duration::from_millis(500)) => {}
                     }
                 }
             }

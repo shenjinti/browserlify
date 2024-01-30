@@ -243,6 +243,7 @@ dependencies = [
  "url",
  "urlencoding",
  "uuid",
+ "which 6.0.0",
 ]
 
 [[package]]
@@ -305,7 +306,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
- "which",
+ "which 4.4.2",
  "winreg 0.51.0",
 ]
 
@@ -2137,6 +2138,19 @@ dependencies = [
  "home",
  "once_cell",
  "rustix",
+]
+
+[[package]]
+name = "which"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7fa5e0c10bf77f44aac573e498d1a82d5fbd5e91f6fc0a99e7be4b38e85e101c"
+dependencies = [
+ "either",
+ "home",
+ "once_cell",
+ "rustix",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

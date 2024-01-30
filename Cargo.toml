@@ -35,3 +35,4 @@ lazy_static = "1.4.0"
 tower-http = { version = "0.5.1", features = ["cors", "fs"] }
 lopdf = "0.32.0"
 rand = "0.8.5"
+which = "6.0.0"
