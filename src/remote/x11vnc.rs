@@ -6,7 +6,12 @@ use std::{
     os::unix::fs::PermissionsExt,
     sync::atomic::{AtomicI32, Ordering},
 };
-use tokio::{io::AsyncBufReadExt, process::Command, select, sync::oneshot};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt},
+    process::Command,
+    select,
+    sync::oneshot,
+};
 pub struct X11SessionOption {
     pub id: String,
     pub name: Option<String>,
@@ -27,6 +32,7 @@ fn build_remote_rc(option: &X11SessionOption, browser_bin: &str) -> String {
         .clone()
         .unwrap_or("America/New_York".to_string());
     let lc_ctype = option.lc_ctype.clone().unwrap_or("en_US.UTF-8".to_string());
+    let user_data_dir = option.data_dir.clone();
 
     format!(
         r#"#!/bin/sh
@@ -35,7 +41,7 @@ export LC_CTYPE={lc_ctype}
 export TZ={timezone}
 while true
 do
-    {browser_bin}
+    {browser_bin} --user-data-dir={user_data_dir}
     echo "browser exit", $?, "restart browser"
     sleep 1
 done
@@ -125,9 +131,20 @@ pub(super) async fn create_x11_session(
     }
 
     let id_ref = option.id.clone();
+    let mut xvfb_run_outout_file = tokio::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(data_dir.join("xvfb-run.log"))
+        .await
+        .ok();
     let xvfb_outout_capture = tokio::spawn(async move {
         while let Ok(Some(line)) = lines.next_line().await {
-            log::info!("xvfb-run {id_ref} > {line}");
+            if let Some(outout_file) = xvfb_run_outout_file.as_mut() {
+                let _ = outout_file.write_all(line.as_bytes()).await;
+                let _ = outout_file.write_all(b"\n").await;
+            } else {
+                log::info!("xvfb-run {id_ref} > {line}");
+            }
         }
     });
 
@@ -176,10 +193,22 @@ pub(super) async fn create_x11_session(
     };
 
     let id_ref = option.id.clone();
+    let mut x11vnc_outout_file = tokio::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(data_dir.join("x11vnc.log"))
+        .await
+        .ok();
     let x11vnc_stdout_capture = tokio::spawn(async move {
         let mut lines = x11vnc_stdout.lines();
+
         while let Ok(Some(line)) = lines.next_line().await {
-            log::info!("x11vnc {id_ref} > {line}");
+            if let Some(outout_file) = x11vnc_outout_file.as_mut() {
+                let _ = outout_file.write_all(line.as_bytes()).await;
+                let _ = outout_file.write_all(b"\n").await;
+            } else {
+                log::info!("x11vnc {id_ref} > {line}");
+            }
         }
     });
 
@@ -228,7 +257,6 @@ pub(super) async fn create_x11_session(
         headless_handler: std::cell::RefCell::new(None),
         created_at: std::time::SystemTime::now(),
         endpoint: format!("vnc://127.0.0.1:{}", x11vnc_port),
-        #[cfg(feature = "remote")]
         remote_handler_tx: Some(remote_handler_tx),
     };
     Ok(session)

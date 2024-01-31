@@ -1,9 +1,15 @@
 use crate::{devices::Device, StateRef};
 use axum::{
+    body::Body,
     extract::{Path, State},
+    http::StatusCode,
+    response::{IntoResponse, Response},
     Json,
 };
-use chromiumoxide::{Browser, Handler};
+use chromiumoxide::{
+    cdp::browser_protocol::page::CaptureScreenshotFormat, page::ScreenshotParams, Browser, Handler,
+};
+use futures::StreamExt;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{cell::RefCell, time::SystemTime};
@@ -145,6 +151,42 @@ pub(crate) async fn killall_session(State(state): State<StateRef>) {
 }
 
 /// Take a screenshot of the current browser (headless or remote)
-pub(crate) async fn screen_session(Path(session_id): Path<String>, State(state): State<StateRef>) {
-    todo!()
+pub(crate) async fn screen_session(
+    Path(session_id): Path<String>,
+    State(state): State<StateRef>,
+) -> Result<Response, crate::Error> {
+    let endpoint_url = state
+        .sessions
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|s| s.id == session_id)
+        .ok_or_else(|| crate::Error::new(StatusCode::BAD_GATEWAY, "session not found"))?
+        .endpoint
+        .clone();
+
+    let (mut browser, mut handler) = Browser::connect(endpoint_url).await?;
+    let handler_job = tokio::spawn(async move { while let Some(_) = handler.next().await {} });
+
+    let params = ScreenshotParams::builder()
+        .format(CaptureScreenshotFormat::Png)
+        .build();
+
+    let screenshot = browser
+        .pages()
+        .await
+        .map(|pages| pages[0].clone())?
+        .screenshot(params)
+        .await?;
+
+    let mut response = Response::new(Body::from(screenshot));
+    response
+        .headers_mut()
+        .insert("Content-Type", "image/png".parse().unwrap());
+
+    browser.close().await.ok();
+    browser.wait().await.ok();
+    handler_job.abort();
+
+    Ok(response.into_response())
 }
