@@ -36,7 +36,6 @@ impl Default for SessionOption {
 pub(crate) enum SessionType {
     Headless,
     RemoteChrome,
-    //RemoteFirefox,
 }
 #[derive(Debug)]
 pub(crate) struct Session {
@@ -53,7 +52,7 @@ pub(crate) struct Session {
     pub(crate) browser: RefCell<Option<Browser>>,
     pub(crate) headless_handler: RefCell<Option<Handler>>,
     #[cfg(feature = "remote")]
-    pub(crate) remote_handler_tx: Option<oneshot::Sender<()>>,
+    pub(crate) remote_handler_tx: Option<crate::remote::RemoteHandler>,
 }
 
 #[derive(Deserialize)]
@@ -65,12 +64,7 @@ pub struct CreateSessionParams {
 impl Drop for Session {
     fn drop(&mut self) {
         #[cfg(feature = "remote")]
-        match self.remote_handler_tx.take() {
-            Some(tx) => {
-                let _ = tx.send(());
-            }
-            None => {}
-        }
+        self.remote_handler_tx.take();
 
         match self.cleanup {
             true => match std::fs::remove_dir_all(&self.data_dir) {

@@ -19,6 +19,10 @@ With Browserlify, you can easily access web content, automate testing with Headl
 > Only tested on linux
 
 ```bash
+# for linux dev 
+$ sudo apt-get install x11vnc xvfb pkg-config libssl-dev chromium-browser 
+
+# 
 $ cd browserlify
 $ cargo run
 ```

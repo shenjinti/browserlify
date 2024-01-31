@@ -1,11 +1,11 @@
+use crate::remote::RemoteHandler;
 use crate::session::Session;
 use axum::http::StatusCode;
+use core::time;
 use lazy_static::lazy_static;
-use std::{
-    fs::Permissions,
-    os::unix::fs::PermissionsExt,
-    sync::atomic::{AtomicI32, Ordering},
-};
+use std::process::Stdio;
+use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::{Arc, Mutex};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt},
     process::Command,
@@ -26,27 +26,19 @@ lazy_static! {
     static ref X11VNC_PORT: AtomicI32 = AtomicI32::new(5900);
 }
 
-fn build_remote_rc(option: &X11SessionOption, browser_bin: &str) -> String {
-    let timezone = option
-        .timezone
-        .clone()
-        .unwrap_or("America/New_York".to_string());
-    let lc_ctype = option.lc_ctype.clone().unwrap_or("en_US.UTF-8".to_string());
-    let user_data_dir = option.data_dir.clone();
-
-    format!(
-        r#"#!/bin/sh
-echo "DISPLAY="$DISPLAY
-export LC_CTYPE={lc_ctype}
-export TZ={timezone}
-while true
-do
-    {browser_bin} --user-data-dir={user_data_dir}
-    echo "browser exit", $?, "restart browser"
-    sleep 1
-done
-"#
-    )
+fn allow_xvfb_port() -> Result<String, crate::Error> {
+    for idx in 100..1024 {
+        let fname = format!("/tmp/.X{}-lock", idx);
+        let lock_file = std::path::Path::new(&fname);
+        if lock_file.exists() {
+            continue;
+        }
+        return Ok(format!(":{idx}"));
+    }
+    Err(crate::Error::new(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "not available xvfb num",
+    ))
 }
 
 async fn allow_vnc_port() -> Result<i32, crate::Error> {
@@ -73,8 +65,8 @@ pub(super) async fn create_x11_session(
     let browser_bin_ref = browser_bin.clone();
     which::which("x11vnc")
         .map_err(|_| crate::Error::new(StatusCode::BAD_GATEWAY, "x11vnc is required"))?;
-    which::which("xvfb-run")
-        .map_err(|_| crate::Error::new(StatusCode::BAD_GATEWAY, "xvfb-run is required"))?;
+    which::which("Xvfb")
+        .map_err(|_| crate::Error::new(StatusCode::BAD_GATEWAY, "Xvfb is required"))?;
     which::which(&browser_bin).map_err(|_| {
         crate::Error::new(
             StatusCode::BAD_GATEWAY,
@@ -83,105 +75,85 @@ pub(super) async fn create_x11_session(
     })?;
 
     let data_dir = std::path::Path::new(&option.data_dir);
-    let remoterc = data_dir.join(".remoterc");
-    // create remoterc when not exists
-    if !remoterc.exists() {
-        let remoterc_data = build_remote_rc(&option, &browser_bin);
-        log::info!("create remoterc {:?} -> {}", remoterc, remoterc_data);
-        tokio::fs::write(&remoterc, remoterc_data).await?;
-        std::fs::set_permissions(&remoterc, Permissions::from_mode(0o755))?;
-    }
+    let display_num = allow_xvfb_port()?;
+    let screen = option.screen.unwrap_or("1280x1024x24+32".to_string());
 
-    let auth_file = data_dir.join(".Xauthority");
-    // create subprocess xvfb-run
-    let mut display_num = ":99".to_string();
-    let mut xvfb_run = Command::new("xvfb-run")
+    let args = vec![&display_num, "-nolisten", "tcp", "-screen", "scrn", &screen];
+    let mut xvfb = Command::new("Xvfb")
         .kill_on_drop(true)
-        .args(&[
-            "-s",
-            option
-                .screen
-                .as_ref()
-                .unwrap_or(&"1280x1024x24+32".to_string()),
-            "-e",
-            "/dev/stdout",
-            "-f",
-            auth_file.to_str().unwrap(),
-            "-a",
-            &remoterc.to_str().unwrap(),
-        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .args(&args)
         .spawn()?;
 
-    let xvfb_run_stdout = match xvfb_run.stdout.take() {
+    let xvfb_stdout = match xvfb.stdout.take() {
         Some(stdout) => tokio::io::BufReader::new(stdout),
         None => {
             return Err(crate::Error::new(
                 StatusCode::BAD_GATEWAY,
-                "xvfb-run stdout is none",
+                "Xvfb stdout is none",
             ))
         }
     };
-    let mut lines = xvfb_run_stdout.lines();
-    while let Some(line) = lines.next_line().await? {
-        log::info!("xvfb-run {} > {line}", option.id);
-        if line.starts_with("DISPLAY=") {
-            display_num = line.trim_start_matches("DISPLAY=").to_string();
-            break;
-        }
-    }
 
-    let id_ref = option.id.clone();
-    let mut xvfb_run_outout_file = tokio::fs::OpenOptions::new()
+    let mut lines = xvfb_stdout.lines();
+    let mut xvfb_outout_file = tokio::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(data_dir.join("xvfb-run.log"))
-        .await
-        .ok();
+        .open(data_dir.join("xvfb.log"))
+        .await?;
+
     let xvfb_outout_capture = tokio::spawn(async move {
         while let Ok(Some(line)) = lines.next_line().await {
-            if let Some(outout_file) = xvfb_run_outout_file.as_mut() {
-                let _ = outout_file.write_all(line.as_bytes()).await;
-                let _ = outout_file.write_all(b"\n").await;
-            } else {
-                log::info!("xvfb-run {id_ref} > {line}");
-            }
+            xvfb_outout_file.write_all(line.as_bytes()).await.ok();
+            xvfb_outout_file.write_all(b"\n").await.ok();
         }
     });
 
-    let xvfb_run_pid = xvfb_run.id();
     log::info!(
-        "xvfb-run id:{} pid: {:?} display: {display_num}",
+        "xvfb id:{} pid: {} display: {display_num} args: {:?} ",
         option.id,
-        xvfb_run_pid,
+        xvfb.id().unwrap_or_default(),
+        args,
     );
 
     // create x11vnc subprocess
     let x11vnc_port = allow_vnc_port().await?;
+    let x11vnc_port = x11vnc_port.to_string();
+    let desktop_name = format!(
+        "{}",
+        option
+            .name
+            .unwrap_or(format!("{}-browserlify.com", option.id.clone()))
+    );
+    let args = vec![
+        "-noxdamage",
+        "-display",
+        &display_num,
+        "-nopw",
+        "-forever",
+        "-listen",
+        "localhost",
+        "-rfbport",
+        &x11vnc_port,
+        "-desktop",
+        &desktop_name,
+    ];
+
     let mut x11vnc = Command::new("x11vnc")
         .kill_on_drop(true)
-        .args(&[
-            "-noxdamage",
-            "-display",
-            &display_num,
-            "-nopw",
-            "-auth",
-            auth_file.to_str().unwrap(),
-            "-forever",
-            "-listen",
-            "localhost",
-            "-rfbport",
-            &x11vnc_port.to_string(),
-            "-desktop",
-            &format!(
-                "{}",
-                option
-                    .name
-                    .unwrap_or(format!("{}-browserlify.com", option.id.clone()))
-            ),
-        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .args(&args)
         .spawn()?;
 
-    let x11vnc_pid = x11vnc.id();
+    log::info!(
+        "x11vnc id: {} pid: {} port:{x11vnc_port} display: {display_num} args: {:?}",
+        option.id,
+        x11vnc.id().unwrap_or_default(),
+        args
+    );
+
     let x11vnc_stdout = match x11vnc.stdout.take() {
         Some(stdout) => tokio::io::BufReader::new(stdout),
         None => {
@@ -192,43 +164,77 @@ pub(super) async fn create_x11_session(
         }
     };
 
-    let id_ref = option.id.clone();
     let mut x11vnc_outout_file = tokio::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(data_dir.join("x11vnc.log"))
-        .await
-        .ok();
+        .await?;
+
     let x11vnc_stdout_capture = tokio::spawn(async move {
         let mut lines = x11vnc_stdout.lines();
-
         while let Ok(Some(line)) = lines.next_line().await {
-            if let Some(outout_file) = x11vnc_outout_file.as_mut() {
-                let _ = outout_file.write_all(line.as_bytes()).await;
-                let _ = outout_file.write_all(b"\n").await;
-            } else {
-                log::info!("x11vnc {id_ref} > {line}");
-            }
+            x11vnc_outout_file.write_all(line.as_bytes()).await.ok();
+            x11vnc_outout_file.write_all(b"\n").await.ok();
         }
     });
 
-    log::info!(
-        "x11vnc id:{} pid: {:?} port:{} display: {display_num}",
-        option.id,
-        x11vnc_pid,
-        x11vnc_port,
-    );
-
     let (remote_handler_tx, remote_handler_rx) = oneshot::channel::<()>();
     let id_ref = option.id.clone();
+    let browser_child_shutdown_tx_ref = Arc::new(Mutex::new(None));
+
+    let remote_handler = RemoteHandler {
+        child_x11vnc: Some(x11vnc),
+        child_xvfb: Some(xvfb),
+        shutdown_tx: Some(remote_handler_tx),
+        browser_child_shutdown_tx: browser_child_shutdown_tx_ref.clone(),
+    };
+
+    let user_data_dir = option.data_dir.clone();
+    let lc_ctype = option.lc_ctype.clone();
+    let timezone = option.timezone.clone();
+
+    let serve_browser = async move {
+        loop {
+            let args = vec!["--user-data-dir", &user_data_dir];
+            let mut cmd = Command::new(&browser_bin);
+            cmd.kill_on_drop(true);
+            cmd.stdout(Stdio::null()).stderr(Stdio::null());
+            cmd.args(&args);
+
+            lc_ctype.clone().map(|v| cmd.env("LC_CTYPE", v));
+            timezone.clone().map(|v| cmd.env("TZ", v));
+
+            match cmd.spawn() {
+                Ok(mut child) => {
+                    let (browser_child_shutdown_tx, browser_child_shutdown_rx) =
+                        oneshot::channel::<()>();
+
+                    browser_child_shutdown_tx_ref
+                        .lock()
+                        .unwrap()
+                        .replace(browser_child_shutdown_tx);
+
+                    select! {
+                        _ = child.wait() =>{
+                            log::info!("browser process exit, restart");
+                        }
+                        _ = browser_child_shutdown_rx => {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::info!("create browser child fail {e}");
+                }
+            };
+            tokio::time::sleep(time::Duration::from_secs(1)).await;
+        }
+    };
 
     tokio::spawn(async move {
         select! {
-            _ = x11vnc.wait() => {
-                log::info!("x11vnc exit id: {}", id_ref);
-            }
-            _ = xvfb_run.wait() => {
-                log::info!("xvfb-run exit id: {}", id_ref);
+            _ = serve_browser => {
+                log::info!("serve_browser shutdown id: {}", id_ref);
             }
             _ = xvfb_outout_capture => {
                 log::info!("xvfb_outout_capture shutdown id: {}", id_ref);
@@ -240,8 +246,6 @@ pub(super) async fn create_x11_session(
                 log::info!("remote_handler_rx shutdown id: {}", id_ref);
             }
         }
-        xvfb_run.kill().await.ok();
-        x11vnc.kill().await.ok();
         log::info!("remote sesson id: {} exit", id_ref);
     });
 
@@ -257,7 +261,7 @@ pub(super) async fn create_x11_session(
         headless_handler: std::cell::RefCell::new(None),
         created_at: std::time::SystemTime::now(),
         endpoint: format!("vnc://127.0.0.1:{}", x11vnc_port),
-        remote_handler_tx: Some(remote_handler_tx),
+        remote_handler_tx: Some(remote_handler),
     };
     Ok(session)
 }
