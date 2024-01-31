@@ -97,8 +97,10 @@ pub(crate) async fn create_headless_browser_session(
         enable_cache: opt.enable_cache,
         shutdown_tx: RefCell::new(shutdown_tx),
         browser: RefCell::new(Some(browser)),
-        handler: RefCell::new(Some(handler)),
+        headless_handler: RefCell::new(Some(handler)),
         created_at: SystemTime::now(),
+        #[cfg(feature = "remote")]
+        remote_handler_tx: None,
     })
 }
 
@@ -141,7 +143,10 @@ pub(crate) async fn handle_headless_session(
     let session =
         create_headless_browser_session(opt, device, state.clone(), Some(shutdown_tx)).await?;
     let mut browser: Browser = session.browser.take().ok_or_else(|| "browser is None")?;
-    let mut handler = session.handler.take().ok_or_else(|| "handler is None")?;
+    let mut handler = session
+        .headless_handler
+        .take()
+        .ok_or_else(|| "handler is None")?;
 
     let (upstream, _) = tokio_tungstenite::connect_async(&session.endpoint)
         .await

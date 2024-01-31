@@ -373,7 +373,10 @@ where
     let session =
         create_headless_browser_session(opt, device, state.clone(), Some(shutdown_tx)).await?;
     let mut browser: Browser = session.browser.take().ok_or_else(|| "window is None")?;
-    let mut handler = session.handler.take().ok_or_else(|| "handler is None")?;
+    let mut handler = session
+        .headless_handler
+        .take()
+        .ok_or_else(|| "handler is None")?;
     let launch_usage = st.elapsed().unwrap_or_default();
     let st = SystemTime::now();
 

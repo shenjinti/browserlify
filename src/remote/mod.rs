@@ -1,8 +1,11 @@
-use std::os;
-
-use crate::{session::kill_session, StateRef};
+use self::x11vnc::{create_x11_session, X11SessionOption};
+use crate::{
+    session::{kill_session, SessionGuard},
+    StateRef,
+};
 use axum::{
     extract::{Path, State, WebSocketUpgrade},
+    http::StatusCode,
     response::Response,
     Json,
 };
@@ -10,11 +13,12 @@ use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::{
+    fs,
     io::{AsyncReadExt, AsyncWriteExt},
     select,
+    sync::oneshot,
 };
 
-use self::x11vnc::{create_x11_session, X11SessionOption};
 mod x11vnc;
 const REMOTE_SUFFIX: &str = ".remote.json";
 
@@ -37,12 +41,12 @@ pub(crate) async fn list_remote(
 ) -> Result<Json<Value>, crate::Error> {
     let root = state.data_root.clone();
     let mut remotes = Vec::new();
-    let mut entries = tokio::fs::read_dir(root).await?;
+    let mut entries = fs::read_dir(root).await?;
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
         if path.is_dir() {
             let remote_file = path.join(REMOTE_SUFFIX);
-            match tokio::fs::read_to_string(&remote_file).await {
+            match fs::read_to_string(&remote_file).await {
                 Ok(data) => {
                     let remote_info: RemoteInfo = serde_json::from_str(&data)?;
                     remotes.push(remote_info);
@@ -71,12 +75,12 @@ pub(crate) async fn create_remote(
 
     if remote_dir.exists() {
         return Err(crate::Error::new(
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::INTERNAL_SERVER_ERROR,
             "remote dir exists",
         ));
     }
 
-    tokio::fs::create_dir_all(&remote_dir).await?;
+    fs::create_dir_all(&remote_dir).await?;
 
     let remote_file = remote_dir.join(REMOTE_SUFFIX);
     let remote_info = RemoteInfo {
@@ -87,7 +91,7 @@ pub(crate) async fn create_remote(
         binary: None,
     };
     let data = serde_json::to_string_pretty(&remote_info)?;
-    tokio::fs::write(&remote_file, data).await?;
+    fs::write(&remote_file, data).await?;
     Ok(Json(json!(remote_info)))
 }
 
@@ -100,7 +104,7 @@ pub(crate) async fn connect_remote(
     let remote_dir = data_root.join(&remote_id);
     if !remote_dir.exists() {
         return Err(crate::Error::new(
-            axum::http::StatusCode::BAD_GATEWAY,
+            StatusCode::BAD_GATEWAY,
             "remote not exists",
         ));
     }
@@ -115,7 +119,7 @@ pub(crate) async fn connect_remote(
         Some(s) => s.endpoint.clone(),
         None => {
             return Err(crate::Error::new(
-                axum::http::StatusCode::BAD_GATEWAY,
+                StatusCode::BAD_GATEWAY,
                 "session is shutdown",
             ));
         }
@@ -124,7 +128,7 @@ pub(crate) async fn connect_remote(
     let addr = url::Url::parse(&endpoint)?
         .socket_addrs(|| None)?
         .first()
-        .ok_or_else(|| crate::Error::new(axum::http::StatusCode::BAD_GATEWAY, "target invalid"))?
+        .ok_or_else(|| crate::Error::new(StatusCode::BAD_GATEWAY, "target invalid"))?
         .clone();
 
     // connect to remote
@@ -173,7 +177,7 @@ pub(crate) async fn stop_remote(
     let remote_dir = data_root.join(&remote_id);
     if !remote_dir.exists() {
         return Err(crate::Error::new(
-            axum::http::StatusCode::BAD_GATEWAY,
+            StatusCode::BAD_GATEWAY,
             "remote not exists",
         ));
     }
@@ -190,7 +194,7 @@ pub(crate) async fn start_remote(
     let remote_dir = data_root.join(&remote_id);
     if !remote_dir.exists() {
         return Err(crate::Error::new(
-            axum::http::StatusCode::BAD_GATEWAY,
+            StatusCode::BAD_GATEWAY,
             "remote not exists",
         ));
     }
@@ -204,7 +208,7 @@ pub(crate) async fn start_remote(
     {
         Some(_) => {
             return Err(crate::Error::new(
-                axum::http::StatusCode::BAD_GATEWAY,
+                StatusCode::BAD_GATEWAY,
                 "session is shutdown",
             ))
         }
@@ -213,10 +217,25 @@ pub(crate) async fn start_remote(
 
     // load remote info
     let remote_file = remote_dir.join(REMOTE_SUFFIX);
-    let data = tokio::fs::read_to_string(&remote_file).await?;
+    let data = match fs::read_to_string(&remote_file).await {
+        Ok(data) => data,
+        Err(e) => {
+            log::error!(
+                "read remote file error remote: {:?} error: {}",
+                remote_file,
+                e
+            );
+            return Err(crate::Error::new(
+                StatusCode::BAD_GATEWAY,
+                "remote file error",
+            ));
+        }
+    };
+
     let remote_info: RemoteInfo = serde_json::from_str(&data)?;
     let opt = X11SessionOption {
         id: remote_id.clone(),
+        name: remote_info.name,
         data_dir: remote_dir.to_str().unwrap().to_string(),
         screen: remote_info.screen,
         binary: remote_info.binary,
@@ -224,8 +243,17 @@ pub(crate) async fn start_remote(
         timezone: std::env::var("TZ").ok(),
     };
 
-    let session = create_x11_session(opt, state.clone()).await?;
-    state.sessions.lock().unwrap().push(session);
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let session = create_x11_session(opt, shutdown_tx).await?;
+
+    tokio::spawn(async move {
+        let guard = SessionGuard::new(state, session);
+        select! {
+            _ = shutdown_rx => {}
+        }
+        drop(guard);
+        log::info!("remote sesson id: {} exit", remote_id);
+    });
     Ok(Response::new("ok".into()))
 }
 
@@ -237,12 +265,12 @@ pub(crate) async fn remove_remote(
     let remote_dir = data_root.join(&remote_id);
     if !remote_dir.exists() {
         return Err(crate::Error::new(
-            axum::http::StatusCode::BAD_GATEWAY,
+            StatusCode::BAD_GATEWAY,
             "remote not exists",
         ));
     }
     // stop session first
     kill_session(Path(remote_id.clone()), State(state.clone())).await;
-    tokio::fs::remove_dir_all(&remote_dir).await?;
+    fs::remove_dir_all(&remote_dir).await?;
     Ok(Response::new("ok".into()))
 }
