@@ -17,6 +17,7 @@ async fn test_x11_session() {
         binary: None,
         lc_ctype: None,
         timezone: None,
+        homepage: None,
     };
 
     let (shutdown_tx, _) = tokio::sync::oneshot::channel();

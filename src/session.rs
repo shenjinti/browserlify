@@ -47,12 +47,19 @@ pub(crate) struct Session {
     pub(crate) cleanup: bool,
     pub(crate) enable_cache: bool,
     pub(crate) created_at: SystemTime,
+    pub(crate) updated_at: RefCell<SystemTime>,
     pub(crate) endpoint: String, // ws:// or vnc://
     pub(crate) shutdown_tx: RefCell<Option<oneshot::Sender<()>>>,
     pub(crate) browser: RefCell<Option<Browser>>,
     pub(crate) headless_handler: RefCell<Option<Handler>>,
     #[cfg(feature = "remote")]
     pub(crate) remote_handler_tx: Option<crate::remote::RemoteHandler>,
+}
+
+impl Session {
+    pub fn touch_updatedat(&self) {
+        *self.updated_at.borrow_mut() = SystemTime::now();
+    }
 }
 
 #[derive(Deserialize)]
@@ -121,7 +128,8 @@ pub(crate) async fn list_session(State(state): State<StateRef>) -> Json<Value> {
                 "device": s.device,
                 "cleanup": s.cleanup,
                 "enable_cache": s.enable_cache,
-                "created_at": s.created_at
+                "created_at": s.created_at,
+                "updated_at": s.updated_at,
             })
         })
         .collect::<Vec<_>>();

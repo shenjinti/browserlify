@@ -3,8 +3,10 @@ use crate::session::Session;
 use axum::http::StatusCode;
 use core::time;
 use lazy_static::lazy_static;
+use std::cell::RefCell;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicI32, Ordering};
+use std::time::SystemTime;
 use tokio::{process::Command, select, sync::oneshot};
 pub struct X11SessionOption {
     pub id: String,
@@ -14,6 +16,7 @@ pub struct X11SessionOption {
     pub binary: Option<String>,
     pub lc_ctype: Option<String>,
     pub timezone: Option<String>,
+    pub homepage: Option<String>,
 }
 
 lazy_static! {
@@ -144,17 +147,22 @@ pub(super) async fn create_x11_session(
     let user_data_dir = option.data_dir.clone();
     let lc_ctype = option.lc_ctype.clone();
     let timezone = option.timezone.clone();
-
+    let homepage = option.homepage.clone();
     let serve_browser = async move {
+        let homepage = homepage.unwrap_or("https://browserlify.com".to_string());
+        let user_data_dir = format!("--user-data-dir={}", user_data_dir);
         loop {
             let args = vec![
-                "--user-data-dir",
                 &user_data_dir,
                 "--disable-breakpad",
                 "--no-first-run",
                 "--password-store=basic",
-                "--enable-blink-features=IdleDetection",
                 "--disable-hang-monitor",
+                "--disable-default-apps",
+                "--disable-renderer-backgrounding",
+                "--force-color-profile=srgb",
+                "--enable-automation",
+                &homepage,
             ];
 
             let mut cmd = Command::new(&browser_bin);
@@ -171,7 +179,7 @@ pub(super) async fn create_x11_session(
                 }
                 Err(_) => {}
             }
-            tokio::time::sleep(time::Duration::from_secs(3)).await;
+            tokio::time::sleep(time::Duration::from_secs(1)).await;
         }
     };
 
@@ -194,10 +202,11 @@ pub(super) async fn create_x11_session(
         device: None,
         cleanup: false,
         enable_cache: false,
-        shutdown_tx: std::cell::RefCell::new(Some(shutdown_tx)),
-        browser: std::cell::RefCell::new(None),
-        headless_handler: std::cell::RefCell::new(None),
-        created_at: std::time::SystemTime::now(),
+        shutdown_tx: RefCell::new(Some(shutdown_tx)),
+        browser: RefCell::new(None),
+        headless_handler: RefCell::new(None),
+        created_at: SystemTime::now(),
+        updated_at: RefCell::new(SystemTime::now()),
         endpoint: format!("vnc://127.0.0.1:{}", x11vnc_port),
         remote_handler_tx: Some(remote_handler),
     };

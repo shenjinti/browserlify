@@ -43,6 +43,7 @@ impl Drop for RemoteHandler {
 pub struct CreateRemoteParams {
     pub id: Option<String>,
     pub name: Option<String>,
+    pub homepage: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -52,6 +53,7 @@ struct RemoteInfo {
     pub created_at: String,
     pub screen: Option<String>,
     pub binary: Option<String>,
+    pub homepage: Option<String>,
 }
 
 pub(crate) async fn list_remote(
@@ -107,6 +109,7 @@ pub(crate) async fn create_remote(
         created_at: chrono::Local::now().to_rfc3339(),
         screen: None,
         binary: None,
+        homepage: params.homepage,
     };
     let data = serde_json::to_string_pretty(&remote_info)?;
     fs::write(&remote_file, data).await?;
@@ -162,10 +165,18 @@ pub(crate) async fn connect_remote(
                 if n == 0 {
                     break;
                 }
-                if let Err(e) = client_ws_tx.send(buf.to_vec().into()).await {
+                let data = &buf[..n];
+                if let Err(e) = client_ws_tx.send(data.into()).await {
                     log::error!("client_ws_tx.send id: {} error: {}", id, e);
                     break;
                 }
+                state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .iter_mut()
+                    .find(|s| s.id == id)
+                    .map(|s| s.touch_updatedat());
             }
         };
 
@@ -176,13 +187,28 @@ pub(crate) async fn connect_remote(
                     log::error!("server_tx.write id: {} error: {}", id, e);
                     break;
                 }
+                state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .iter_mut()
+                    .find(|s| s.id == id)
+                    .map(|s| s.touch_updatedat());
             }
         };
         select! {
-            _ = server_to_client => {}
-            _ = client_to_server => {}
+            _ = server_to_client => {
+                log::info!("remote server_to_client id: {} exit", remote_id);
+            }
+            _ = client_to_server => {
+                log::info!("remote client_to_server id: {} exit", remote_id);
+            }
         }
-        log::info!("connect_remote id: {} exit endponit: {}", id, endpoint);
+        log::info!(
+            "connect_remote id: {} exit endponit: {}",
+            remote_id,
+            endpoint
+        );
     });
     Ok(r)
 }
@@ -259,6 +285,7 @@ pub(crate) async fn start_remote(
         binary: remote_info.binary,
         lc_ctype: std::env::var("LC_CTYPE").ok(),
         timezone: std::env::var("TZ").ok(),
+        homepage: remote_info.homepage,
     };
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();

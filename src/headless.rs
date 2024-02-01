@@ -99,6 +99,7 @@ pub(crate) async fn create_headless_browser_session(
         browser: RefCell::new(Some(browser)),
         headless_handler: RefCell::new(Some(handler)),
         created_at: SystemTime::now(),
+        updated_at: RefCell::new(SystemTime::now()),
         #[cfg(feature = "remote")]
         remote_handler_tx: None,
     })
@@ -167,6 +168,13 @@ pub(crate) async fn handle_headless_session(
                         log::error!("client_ws_tx.send id: {} error: {}", id, e);
                         break;
                     }
+                    state
+                        .sessions
+                        .lock()
+                        .unwrap()
+                        .iter_mut()
+                        .find(|s| s.id == id)
+                        .map(|s| s.touch_updatedat());
                 }
             }
         };
@@ -177,6 +185,13 @@ pub(crate) async fn handle_headless_session(
                     log::error!("server_ws_tx.send id: {} error: {}", id, e);
                     break;
                 }
+                state
+                    .sessions
+                    .lock()
+                    .unwrap()
+                    .iter_mut()
+                    .find(|s| s.id == id)
+                    .map(|s| s.touch_updatedat());
             }
         };
 
