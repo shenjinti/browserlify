@@ -26,7 +26,7 @@ pub use error::Error;
 #[derive(Parser, Debug)]
 #[command(version)]
 struct Cli {
-    #[clap(long, default_value = "127.0.0.1:9000")]
+    #[clap(long, default_value = "0.0.0.0:9000")]
     addr: String,
 
     #[clap(long, short, default_value = "0")]

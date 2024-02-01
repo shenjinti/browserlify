@@ -4,9 +4,12 @@ use axum::http::StatusCode;
 use core::time;
 use lazy_static::lazy_static;
 use std::cell::RefCell;
+use std::fs::OpenOptions;
+use std::path::Path;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::SystemTime;
+use tokio::fs::remove_file;
 use tokio::{process::Command, select, sync::oneshot};
 pub struct X11SessionOption {
     pub id: String,
@@ -22,15 +25,16 @@ pub struct X11SessionOption {
 lazy_static! {
     static ref X11VNC_PORT: AtomicI32 = AtomicI32::new(5900);
 }
+const DEFAULT_HOMEPAGE: &str = "https://browserlify.com/?from=docker";
 
-fn allow_xvfb_port() -> Result<String, crate::Error> {
+fn allow_xvfb_port() -> Result<i32, crate::Error> {
     for idx in 100..1024 {
         let fname = format!("/tmp/.X{}-lock", idx);
-        let lock_file = std::path::Path::new(&fname);
+        let lock_file = Path::new(&fname);
         if lock_file.exists() {
             continue;
         }
-        return Ok(format!(":{idx}"));
+        return Ok(idx);
     }
     Err(crate::Error::new(
         StatusCode::SERVICE_UNAVAILABLE,
@@ -71,44 +75,51 @@ pub(super) async fn create_x11_session(
         )
     })?;
 
-    let data_dir = std::path::Path::new(&option.data_dir);
+    let data_dir = Path::new(&option.data_dir);
     let display_num = allow_xvfb_port()?;
+    let display_num_str = format!(":{display_num}");
+
     let screen = option.screen.unwrap_or("1280x1024x24+32".to_string());
 
-    let args = vec![&display_num, "-nolisten", "tcp", "-screen", "scrn", &screen];
-    let xvfb_outout_file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(data_dir.join("xvfb.log"))?;
+    let args = vec![
+        &display_num_str,
+        "-nolisten",
+        "tcp",
+        "-screen",
+        "scrn",
+        &screen,
+    ];
 
     let xvfb = Command::new("Xvfb")
         .kill_on_drop(true)
-        .stdout(Stdio::from(xvfb_outout_file))
         .args(&args)
         .spawn()?;
 
     log::info!(
-        "xvfb id:{} pid: {} display: {display_num} args: {:?} ",
+        "xvfb id:{} pid: {} Xfvb {display_num_str} {}",
         option.id,
         xvfb.id().unwrap_or_default(),
-        args,
+        args.join(" "),
     );
 
     // create x11vnc subprocess
     let x11vnc_port = allow_vnc_port().await?;
     let x11vnc_port = x11vnc_port.to_string();
-    let desktop_name = format!(
-        "{}",
-        option
-            .name
-            .unwrap_or(format!("{}-browserlify.com", option.id.clone()))
-    );
+    let desktop_name = format!("{}", option.name.unwrap_or(option.id.clone()));
+    let x11vnc_outout_file = data_dir
+        .join("x11vnc.log")
+        .to_str()
+        .unwrap_or("/dev/stdout")
+        .to_string();
+
     let args = vec![
         "-noxdamage",
         "-display",
-        &display_num,
+        &display_num_str,
         "-nopw",
         "-forever",
+        "-o",
+        &x11vnc_outout_file,
         "-listen",
         "localhost",
         "-rfbport",
@@ -117,22 +128,16 @@ pub(super) async fn create_x11_session(
         &desktop_name,
     ];
 
-    let x11vnc_outout_file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(data_dir.join("x11vnc.log"))?;
-
     let x11vnc = Command::new("x11vnc")
         .kill_on_drop(true)
-        .stdout(Stdio::from(x11vnc_outout_file))
         .args(&args)
         .spawn()?;
 
     log::info!(
-        "x11vnc id: {} pid: {} port:{x11vnc_port} display: {display_num} args: {:?}",
+        "x11vnc id: {} pid: {} x11vnc {}",
         option.id,
         x11vnc.id().unwrap_or_default(),
-        args
+        args.join(" ")
     );
 
     let (remote_handler_tx, remote_handler_rx) = oneshot::channel::<()>();
@@ -148,9 +153,13 @@ pub(super) async fn create_x11_session(
     let lc_ctype = option.lc_ctype.clone();
     let timezone = option.timezone.clone();
     let homepage = option.homepage.clone();
+
     let serve_browser = async move {
-        let homepage = homepage.unwrap_or("https://browserlify.com".to_string());
+        let homepage = homepage.unwrap_or(DEFAULT_HOMEPAGE.to_string());
+        let output_file = Path::new(&user_data_dir).join("stdout.log");
+
         let user_data_dir = format!("--user-data-dir={}", user_data_dir);
+
         loop {
             let args = vec![
                 &user_data_dir,
@@ -161,14 +170,21 @@ pub(super) async fn create_x11_session(
                 "--disable-default-apps",
                 "--disable-renderer-backgrounding",
                 "--force-color-profile=srgb",
-                "--enable-automation",
+                "--no-default-browser-check",
                 &homepage,
             ];
 
             let mut cmd = Command::new(&browser_bin);
             cmd.kill_on_drop(true);
-            cmd.env("DISPLAY", &display_num);
+            cmd.env("DISPLAY", &display_num_str);
             cmd.args(&args);
+
+            OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&output_file)
+                .map(|f| cmd.stderr(Stdio::from(f)))
+                .ok();
 
             lc_ctype.clone().map(|v| cmd.env("LC_CTYPE", v));
             timezone.clone().map(|v| cmd.env("TZ", v));
@@ -192,6 +208,7 @@ pub(super) async fn create_x11_session(
                 log::info!("remote_handler_rx shutdown id: {}", id_ref);
             }
         }
+        remove_file(format!("/tmp/.X{display_num}-lock")).await.ok();
         log::info!("shutdown remote sesson id: {} exit", id_ref);
     });
 

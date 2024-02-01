@@ -16,7 +16,7 @@ With Browserlify, you can easily access web content, automate testing with Headl
 
 ### Run via cargo & puppeteer (local development)
 > Note: you need to install puppeteer and rust first
-> Only tested on linux
+> remote browser Only tested on linux
 
 ```bash
 # for linux dev 
