@@ -41,6 +41,7 @@ impl Drop for RemoteHandler {
 
 #[derive(Deserialize)]
 pub struct CreateRemoteParams {
+    pub id: Option<String>,
     pub name: Option<String>,
 }
 
@@ -86,7 +87,7 @@ pub(crate) async fn create_remote(
     State(state): State<StateRef>,
     Json(params): Json<CreateRemoteParams>,
 ) -> Result<Json<Value>, crate::Error> {
-    let id = uuid::Uuid::new_v4().to_string();
+    let id = params.id.unwrap_or(uuid::Uuid::new_v4().to_string());
     let data_root = std::path::Path::new(&state.data_root);
     let remote_dir = data_root.join(&id);
 

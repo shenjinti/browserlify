@@ -147,7 +147,16 @@ pub(super) async fn create_x11_session(
 
     let serve_browser = async move {
         loop {
-            let args = vec!["--user-data-dir", &user_data_dir];
+            let args = vec![
+                "--user-data-dir",
+                &user_data_dir,
+                "--disable-breakpad",
+                "--no-first-run",
+                "--password-store=basic",
+                "--enable-blink-features=IdleDetection",
+                "--disable-hang-monitor",
+            ];
+
             let mut cmd = Command::new(&browser_bin);
             cmd.kill_on_drop(true);
             cmd.env("DISPLAY", &display_num);
@@ -162,7 +171,7 @@ pub(super) async fn create_x11_session(
                 }
                 Err(_) => {}
             }
-            tokio::time::sleep(time::Duration::from_secs(1)).await;
+            tokio::time::sleep(time::Duration::from_secs(3)).await;
         }
     };
 
