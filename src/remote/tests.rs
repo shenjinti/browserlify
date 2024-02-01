@@ -24,6 +24,6 @@ async fn test_x11_session() {
         .await
         .expect("create x11vnc fail");
 
-    tokio::time::sleep(time::Duration::from_secs(1)).await;
     drop(session);
+    tokio::time::sleep(time::Duration::from_secs(1)).await;
 }

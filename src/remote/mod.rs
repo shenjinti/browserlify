@@ -1,5 +1,3 @@
-use std::sync::{Arc, Mutex};
-
 use self::x11vnc::{create_x11_session, X11SessionOption};
 use crate::{
     session::{kill_session, SessionGuard},
@@ -31,27 +29,12 @@ pub struct RemoteHandler {
     pub(super) child_x11vnc: Option<tokio::process::Child>,
     pub(super) child_xvfb: Option<tokio::process::Child>,
     pub(super) shutdown_tx: Option<oneshot::Sender<()>>,
-    pub(super) browser_child_shutdown_tx: Arc<Mutex<Option<oneshot::Sender<()>>>>,
 }
 
 impl Drop for RemoteHandler {
     fn drop(&mut self) {
-        self.browser_child_shutdown_tx.lock().unwrap().take();
-
-        match self.child_x11vnc.take() {
-            Some(mut p) => {
-                p.start_kill().ok();
-                p.try_wait().ok();
-            }
-            None => {}
-        }
-        match self.child_xvfb.take() {
-            Some(mut p) => {
-                p.start_kill().ok();
-                p.try_wait().ok();
-            }
-            None => {}
-        }
+        self.child_x11vnc.take();
+        self.child_xvfb.take();
         self.shutdown_tx.take();
     }
 }

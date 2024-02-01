@@ -5,13 +5,7 @@ use core::time;
 use lazy_static::lazy_static;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::{Arc, Mutex};
-use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt},
-    process::Command,
-    select,
-    sync::oneshot,
-};
+use tokio::{process::Command, select, sync::oneshot};
 pub struct X11SessionOption {
     pub id: String,
     pub name: Option<String>,
@@ -79,36 +73,16 @@ pub(super) async fn create_x11_session(
     let screen = option.screen.unwrap_or("1280x1024x24+32".to_string());
 
     let args = vec![&display_num, "-nolisten", "tcp", "-screen", "scrn", &screen];
-    let mut xvfb = Command::new("Xvfb")
-        .kill_on_drop(true)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .args(&args)
-        .spawn()?;
-
-    let xvfb_stdout = match xvfb.stdout.take() {
-        Some(stdout) => tokio::io::BufReader::new(stdout),
-        None => {
-            return Err(crate::Error::new(
-                StatusCode::BAD_GATEWAY,
-                "Xvfb stdout is none",
-            ))
-        }
-    };
-
-    let mut lines = xvfb_stdout.lines();
-    let mut xvfb_outout_file = tokio::fs::OpenOptions::new()
+    let xvfb_outout_file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(data_dir.join("xvfb.log"))
-        .await?;
+        .open(data_dir.join("xvfb.log"))?;
 
-    let xvfb_outout_capture = tokio::spawn(async move {
-        while let Ok(Some(line)) = lines.next_line().await {
-            xvfb_outout_file.write_all(line.as_bytes()).await.ok();
-            xvfb_outout_file.write_all(b"\n").await.ok();
-        }
-    });
+    let xvfb = Command::new("Xvfb")
+        .kill_on_drop(true)
+        .stdout(Stdio::from(xvfb_outout_file))
+        .args(&args)
+        .spawn()?;
 
     log::info!(
         "xvfb id:{} pid: {} display: {display_num} args: {:?} ",
@@ -140,10 +114,14 @@ pub(super) async fn create_x11_session(
         &desktop_name,
     ];
 
-    let mut x11vnc = Command::new("x11vnc")
+    let x11vnc_outout_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(data_dir.join("x11vnc.log"))?;
+
+    let x11vnc = Command::new("x11vnc")
         .kill_on_drop(true)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stdout(Stdio::from(x11vnc_outout_file))
         .args(&args)
         .spawn()?;
 
@@ -154,39 +132,13 @@ pub(super) async fn create_x11_session(
         args
     );
 
-    let x11vnc_stdout = match x11vnc.stdout.take() {
-        Some(stdout) => tokio::io::BufReader::new(stdout),
-        None => {
-            return Err(crate::Error::new(
-                StatusCode::BAD_GATEWAY,
-                "x11vnc stdout is none",
-            ))
-        }
-    };
-
-    let mut x11vnc_outout_file = tokio::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(data_dir.join("x11vnc.log"))
-        .await?;
-
-    let x11vnc_stdout_capture = tokio::spawn(async move {
-        let mut lines = x11vnc_stdout.lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            x11vnc_outout_file.write_all(line.as_bytes()).await.ok();
-            x11vnc_outout_file.write_all(b"\n").await.ok();
-        }
-    });
-
     let (remote_handler_tx, remote_handler_rx) = oneshot::channel::<()>();
     let id_ref = option.id.clone();
-    let browser_child_shutdown_tx_ref = Arc::new(Mutex::new(None));
 
     let remote_handler = RemoteHandler {
         child_x11vnc: Some(x11vnc),
         child_xvfb: Some(xvfb),
         shutdown_tx: Some(remote_handler_tx),
-        browser_child_shutdown_tx: browser_child_shutdown_tx_ref.clone(),
     };
 
     let user_data_dir = option.data_dir.clone();
@@ -198,35 +150,18 @@ pub(super) async fn create_x11_session(
             let args = vec!["--user-data-dir", &user_data_dir];
             let mut cmd = Command::new(&browser_bin);
             cmd.kill_on_drop(true);
-            cmd.stdout(Stdio::null()).stderr(Stdio::null());
+            cmd.env("DISPLAY", &display_num);
             cmd.args(&args);
 
             lc_ctype.clone().map(|v| cmd.env("LC_CTYPE", v));
             timezone.clone().map(|v| cmd.env("TZ", v));
-
             match cmd.spawn() {
                 Ok(mut child) => {
-                    let (browser_child_shutdown_tx, browser_child_shutdown_rx) =
-                        oneshot::channel::<()>();
-
-                    browser_child_shutdown_tx_ref
-                        .lock()
-                        .unwrap()
-                        .replace(browser_child_shutdown_tx);
-
-                    select! {
-                        _ = child.wait() =>{
-                            log::info!("browser process exit, restart");
-                        }
-                        _ = browser_child_shutdown_rx => {
-                            break;
-                        }
-                    }
+                    child.wait().await.ok();
+                    log::info!("browser process exit, restart");
                 }
-                Err(e) => {
-                    log::info!("create browser child fail {e}");
-                }
-            };
+                Err(_) => {}
+            }
             tokio::time::sleep(time::Duration::from_secs(1)).await;
         }
     };
@@ -236,17 +171,11 @@ pub(super) async fn create_x11_session(
             _ = serve_browser => {
                 log::info!("serve_browser shutdown id: {}", id_ref);
             }
-            _ = xvfb_outout_capture => {
-                log::info!("xvfb_outout_capture shutdown id: {}", id_ref);
-            }
-            _ = x11vnc_stdout_capture => {
-                log::info!("x11vnc_stdout_capture shutdown id: {}", id_ref);
-            }
             _ = remote_handler_rx => {
                 log::info!("remote_handler_rx shutdown id: {}", id_ref);
             }
         }
-        log::info!("remote sesson id: {} exit", id_ref);
+        log::info!("shutdown remote sesson id: {} exit", id_ref);
     });
 
     let session = Session {
