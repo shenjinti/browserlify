@@ -80,7 +80,15 @@ pub(super) async fn create_x11_session(
     let display_num = allow_xvfb_port()?;
     let display_num_str = format!(":{display_num}");
 
-    let screen = option.screen.unwrap_or("1280x1024x24".to_string());
+    let screen = option.screen.unwrap_or("1200x900x24".to_string());
+
+    let re = regex::Regex::new(r"(\d+)x(\d+)").unwrap();
+    let dimensions = re.captures(&screen).and_then(|cap| {
+        let width = cap.get(1)?.as_str().parse().ok()?;
+        let height = cap.get(2)?.as_str().parse().ok()?;
+        Some((width, height))
+    });
+    let (width, height) = dimensions.unwrap_or((1200, 900));
 
     let args = vec![
         &display_num_str,
@@ -119,6 +127,7 @@ pub(super) async fn create_x11_session(
         &display_num_str,
         "-nopw",
         "-forever",
+        "-shared",
         "-o",
         &x11vnc_outout_file,
         "-listen",
@@ -159,7 +168,7 @@ pub(super) async fn create_x11_session(
 
         let output_file = Path::new(&option.data_dir).join("stdout.log");
         let user_data_dir = format!("--user-data-dir={}", option.data_dir);
-
+        let window_size = format!("--window-size={width},{height}");
         loop {
             let args = vec![
                 &user_data_dir,
@@ -171,6 +180,8 @@ pub(super) async fn create_x11_session(
                 "--disable-renderer-backgrounding",
                 "--force-color-profile=srgb",
                 "--no-default-browser-check",
+                "--start-maximized",
+                &window_size,
                 &homepage,
             ];
 
@@ -192,8 +203,10 @@ pub(super) async fn create_x11_session(
                 cmd.env("http_proxy", v);
                 cmd.env("https_proxy", v);
             });
+
             match cmd.spawn() {
                 Ok(mut child) => {
+                    log::info!("start browser {} {}", browser_bin, args.join(" "));
                     child.wait().await.ok();
                     log::info!("browser process exit, restart");
                 }

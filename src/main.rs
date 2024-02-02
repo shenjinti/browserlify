@@ -121,7 +121,7 @@ fn create_router(state: StateRef) -> Router {
     let router = Router::new()
         .route("/list", get(session::list_session))
         .route("/kill/:session_id", post(session::kill_session))
-        .route("/screen/:session_id", post(session::screen_session))
+        .route("/screen/:session_id", get(session::screen_session))
         .route("/kill_all", post(session::killall_session));
 
     #[cfg(feature = "headless")]
@@ -152,6 +152,7 @@ fn create_router(state: StateRef) -> Router {
             "/remote",
             Router::new()
                 .route("/connect/:remote_id", get(remote::connect_remote))
+                .route("/edit/:remote_id", get(remote::edit_remote))
                 .route("/stop/:remote_id", post(remote::stop_remote))
                 .route("/start/:remote_id", post(remote::start_remote))
                 .route("/remove/:remote_id", post(remote::remove_remote))

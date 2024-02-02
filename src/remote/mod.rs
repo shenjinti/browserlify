@@ -138,6 +138,47 @@ pub(crate) async fn create_remote(
     Ok(Json(json!(remote_info)))
 }
 
+pub(crate) async fn edit_remote(
+    Path(remote_id): Path<String>,
+    State(state): State<StateRef>,
+    Json(params): Json<CreateRemoteParams>,
+) -> Result<Json<Value>, crate::Error> {
+    let data_root = std::path::Path::new(&state.data_root);
+    let remote_dir = data_root.join(&remote_id);
+    if !remote_dir.exists() {
+        return Err(crate::Error::new(
+            StatusCode::BAD_GATEWAY,
+            "remote not exists",
+        ));
+    }
+
+    // load remote info
+    let remote_file = remote_dir.join(REMOTE_SUFFIX);
+    let data = match fs::read_to_string(&remote_file).await {
+        Ok(data) => data,
+        Err(e) => {
+            log::error!(
+                "read remote file error remote: {:?} error: {}",
+                remote_file,
+                e
+            );
+            return Err(crate::Error::new(
+                StatusCode::BAD_GATEWAY,
+                "remote file error",
+            ));
+        }
+    };
+
+    let mut remote_info: RemoteInfo = serde_json::from_str(&data)?;
+    params.homepage.map(|v| remote_info.homepage.replace(v));
+    params.name.map(|v| remote_info.name.replace(v));
+    params.http_proxy.map(|v| remote_info.http_proxy.replace(v));
+
+    let data = serde_json::to_string_pretty(&remote_info)?;
+    fs::write(&remote_file, data).await?;
+    Ok(Json(json!(remote_info)))
+}
+
 pub(crate) async fn connect_remote(
     ws: WebSocketUpgrade,
     Path(remote_id): Path<String>,
@@ -361,7 +402,7 @@ pub(crate) async fn screen_remote_screen(
         .ok_or_else(|| crate::Error::new(StatusCode::BAD_GATEWAY, "session not running"))?;
 
     let temp_file = tempfile::NamedTempFile::new()?;
-    let temp_file_name = temp_file.path().to_str().unwrap().to_string();
+    let temp_file_name = format!("{}.png", temp_file.path().to_str().unwrap().to_string());
 
     let mut child = Command::new("scrot")
         .kill_on_drop(true)
