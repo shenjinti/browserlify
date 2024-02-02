@@ -1,25 +1,24 @@
 {
-  "name": "vuetify-project",
+  "name": "browserlify-webui",
   "version": "0.0.0",
   "scripts": {
-    "dev": "cross-env NODE_OPTIONS='--no-warnings' vite",
+    "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@mdi/font": "7.0.96",
+    "@headlessui/vue": "^1.7.17",
+    "@heroicons/vue": "^2.1.1",
     "@novnc/novnc": "^1.4.0",
+    "@tailwindui/vue": "^0.1.0-alpha.2",
     "roboto-fontface": "*",
-    "vue": "^3.3.0",
-    "vuetify": "^3.0.0"
+    "vue": "^3.3.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^4.5.0",
-    "cross-env": "^7.0.3",
-    "sass": "^1.69.0",
-    "unplugin-fonts": "^1.1.0",
-    "unplugin-vue-components": "^0.26.0",
-    "vite": "^5.0.0",
-    "vite-plugin-vuetify": "^2.0.0"
+    "autoprefixer": "^10.4.17",
+    "postcss": "^8.4.33",
+    "tailwindcss": "^3.4.1",
+    "vite": "^5.0.0"
   }
 }
