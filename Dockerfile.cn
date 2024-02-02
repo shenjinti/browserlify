@@ -1,10 +1,17 @@
-FROM rust:bookworm as builder
+FROM rust:bookworm as rust-builder
 RUN mkdir /build
 ADD . /build/
 WORKDIR /build
 RUN mkdir -p .cargo && echo '[source.crates-io]\nreplace-with = "rsproxy-sparse"\n[source.rsproxy-sparse]\nregistry = "sparse+https://rsproxy.cn/index/"' > .cargo/config.toml
 RUN ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 RUN cargo build --release
+
+FROM node:bookworm as node-builder
+RUN mkdir /build
+ADD web /build/
+WORKDIR /build
+RUN npm config set registry http://registry.npmmirror.com
+RUN yarn && yarn build
 
 FROM debian:bookworm
 RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources
@@ -43,5 +50,7 @@ ENV CHROME_BIN=/usr/bin/google-chrome \
     CHROME_PATH=/opt/google/chrome/
 
 COPY scripts/*.sh /app/
-COPY --from=builder /build/target/release/browserlify /app/
+COPY --from=rust-builder /build/target/release/browserlify /app/
+COPY --from=node-builder /build/dist /app/dist
+
 ENTRYPOINT [ "/app/entrypoint.sh"]

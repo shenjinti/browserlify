@@ -144,8 +144,13 @@ async function handleUpload() {
   console.log('upload')
 }
 
-async function handlePhoto(item) {
-  console.log('photo', item)
+async function handleScreenshot(item) {
+  if (item.running) {
+    let a = document.createElement('a')
+    a.href = `/screen/${item.id}`
+    a.download = 'screenshot.png'
+    a.click()
+  }
 }
 
 async function handleStop(item) {
@@ -219,7 +224,6 @@ function connectRemote(item) {
   });
 
   rfb.addEventListener("disconnect", (e) => {
-    console.log('disconnect', e)
     item.rfb = undefined
     item.screenshot = undefined
   });
@@ -251,7 +255,7 @@ async function handleDelete() {
 }
 
 async function handleFullscreen(item) {
-  console.log('open', item)
+  console.log('handleFullscreen', item)
 }
 
 async function handleTitlechange() {
@@ -277,7 +281,7 @@ async function handleTitlechange() {
             <ArrowLongLeftIcon class="w-6 h-6 group-hover:text-sky-600" />
             <p class="group-hover:text-sky-600 font-semibold ml-2">Back</p>
           </div>
-          <img src="../public/chrome.jpg" alt="" class="w-7 h-7">
+          <img src="../public/chrome.png" alt="" class="w-7 h-7">
           <div class="flex items-center space-x-2 w-96">
             <input v-if="showEdit" id="titleInput" ref="titleInput" v-model="current.title" type="text"
               :placeholder="current.title" class="block w-full h-9 rounded-md border border-gray-300 py-1.5 pl-2 text-sm placeholder-gray-400 placeholder:text-xs
@@ -297,9 +301,9 @@ async function handleTitlechange() {
         <div class="flex items-center space-x-4">
           <!-- <ArrowUpTrayIcon class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer"
             @click="handleUpload(current)" /> -->
-          <PhotoIcon class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer" @click="handlePhoto(current)" />
-          <ArrowsPointingOutIcon class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer"
-            @click="handleFullscreen(current)" />
+          <PhotoIcon class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer" @click="handleScreenshot(current)" />
+          <!-- <ArrowsPointingOutIcon class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer"
+            @click="handleFullscreen(current)" /> -->
           <PlayIcon v-if="!current.running" class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer"
             @click="handleStartAndConnect(current)" />
           <StopIcon v-else class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer" @click="handleStop(current)" />
@@ -359,12 +363,12 @@ async function handleTitlechange() {
             </div>
             <div class="flex items-center justify-between py-2 px-4 bg-slate-200">
               <p>{{ item.title }}</p>
-              <img src="../public/chrome.jpg" alt="" class="w-6 h-6">
+              <img src="../public/chrome.png" alt="" class="w-6 h-6">
             </div>
           </div>
         </div>
       </template>
-      <div v-else class="text-2xl flex justify-center items-center pt-10">
+      <div v-else class="text-xl flex justify-center items-center pt-16 text-gray-600">
         Create a remote browser first
       </div>
     </div>

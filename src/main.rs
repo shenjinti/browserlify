@@ -10,6 +10,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::ServeDir;
 #[cfg(feature = "content")]
 mod content;
 mod devices;
@@ -122,11 +123,14 @@ fn create_router(state: StateRef) -> Router {
         .route("/list", get(session::list_session))
         .route("/kill/:session_id", post(session::kill_session))
         .route("/screen/:session_id", get(session::screen_session))
-        .route("/kill_all", post(session::killall_session));
+        .route("/kill_all", post(session::killall_session))
+        .nest_service("/assets", ServeDir::new("dist/assets"));
 
     #[cfg(feature = "headless")]
     let router = router.route("/", get(headless::create_headless_session));
 
+    #[cfg(not(feature = "headless"))]
+    let router = router.route("/", get(handle_index_page));
     #[cfg(feature = "content")]
     let router = router
         .route(

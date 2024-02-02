@@ -1,8 +1,15 @@
-FROM rust:bookworm as builder
+FROM rust:bookworm as rust-builder
 RUN mkdir /build
 ADD . /build/
 WORKDIR /build
 RUN cargo build --release
+
+FROM node:bookworm as node-builder
+RUN mkdir /build
+ADD web /build/
+WORKDIR /build
+RUN npm config set registry http://registry.npmmirror.com
+RUN yarn && yarn build
 
 FROM debian:bookworm
 ENV DEBIAN_FRONTEND noninteractive
@@ -29,8 +36,6 @@ RUN mkdir -p /app \
     && adduser chrome --home /app\
     && chown -R chrome:chrome /app
 
-RUN ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
-
 # Run Chrome as non-privileged
 USER chrome
 WORKDIR /app
@@ -40,5 +45,7 @@ ENV CHROME_BIN=/usr/bin/google-chrome \
     CHROME_PATH=/opt/google/chrome/
 
 COPY scripts/*.sh /app/
-COPY --from=builder /build/target/release/browserlify /app/
+COPY --from=rust-builder /build/target/release/browserlify /app/
+COPY --from=node-builder /build/dist /app/dist
+
 ENTRYPOINT [ "/app/entrypoint.sh"]

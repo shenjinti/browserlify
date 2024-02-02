@@ -8,10 +8,16 @@ Browserlify is a browser service:
 
 With Browserlify, you can easily access web content, automate testing with Headless Chrome, and enjoy the convenience of a remote browser.
 
+### Screenshots
+
+<img src="./screenshots/dashboard.png" width="60%" alt="Dashboard" />
+<img src="./screenshots/viewer.png" width="60%" alt="Viewer" />
+
 ### How to run (via docker)
 ```bash
-# WIP: docker image is not ready yet
-#docker run  -ti --rm --privileged -p 9000:9000 shenjinti/browserlify
+docker run  -ti --rm --privileged  \
+  -v `pwd`/data:/tmp/browserlify \
+  -p 9000:9000 shenjinti/browserlify
 ```
 
 ### Run via cargo & puppeteer (local development)
@@ -20,7 +26,7 @@ With Browserlify, you can easily access web content, automate testing with Headl
 
 ```bash
 # for linux dev 
-$ sudo apt-get install x11vnc xvfb pkg-config libssl-dev chromium-browser 
+$ sudo apt-get install x11vnc xvfb scrot pkg-config libssl-dev chromium-browser 
 
 # 
 $ cd browserlify

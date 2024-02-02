@@ -16,7 +16,9 @@ use tokio_tungstenite::tungstenite;
 
 use crate::{
     devices::{get_device, Device},
-    session::{CreateSessionParams, Session, SessionGuard, SessionOption, SessionType},
+    session::{
+        handle_index_page, CreateSessionParams, Session, SessionGuard, SessionOption, SessionType,
+    },
     Error, StateRef,
 };
 
@@ -119,12 +121,7 @@ pub(crate) async fn create_headless_session(
 ) -> Response {
     let ws = match ws {
         Some(ws) => ws,
-        None => {
-            return Response::builder()
-                .status(200)
-                .body(Body::from("show the sessions"))
-                .unwrap()
-        }
+        None => return handle_index_page().await,
     };
 
     match handle_headless_session(ws, Query(params), State(state)).await {

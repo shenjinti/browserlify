@@ -11,7 +11,7 @@ use chromiumoxide::{Browser, Handler};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{cell::RefCell, time::SystemTime};
-use tokio::sync::oneshot;
+use tokio::{fs::read_to_string, sync::oneshot};
 
 #[derive(Debug, Clone)]
 pub(crate) struct SessionOption {
@@ -168,5 +168,19 @@ pub(crate) async fn screen_session(
     match session_type {
         SessionType::Headless => screen_headless_screen(session_id, state).await,
         SessionType::RemoteChrome => screen_remote_screen(session_id, state).await,
+    }
+}
+
+pub(crate) async fn handle_index_page() -> Response {
+    match read_to_string("dist/index.html").await {
+        Ok(body) => Response::builder()
+            .status(StatusCode::OK)
+            .header("content-type", "text/html")
+            .body(body.into())
+            .unwrap(),
+        Err(e) => Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(e.to_string().into())
+            .unwrap(),
     }
 }
