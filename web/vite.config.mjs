@@ -37,6 +37,10 @@ export default defineConfig({
         target: 'http://192.168.3.104:9000',
         changeOrigin: true,
       },
+      '/screen': {
+        target: 'http://192.168.3.104:9000',
+        changeOrigin: true,
+      },
     },
   },
 })

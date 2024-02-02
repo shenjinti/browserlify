@@ -1,39 +1,142 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { PlayIcon, StopIcon, TrashIcon, PhotoIcon, ArrowsPointingOutIcon, ArrowUpTrayIcon, ArrowLongLeftIcon } from '@heroicons/vue/24/outline'
 import Button from '../src/compontents/Button.vue'
 import Confirm from '../src/compontents/Confirm.vue'
 import Input from '../src/compontents/Input.vue'
+import RFB from '\@novnc/novnc/core/rfb.js';
 
 const loading = ref(false)
-const showWindow = ref(false)
 const confirmVisible = ref(false)
 const deletecontent = ref('Are you sure you want to delete?')
 const remotes = ref([])
+const current = ref(null)
+const confirmDeleteId = ref(null)
+const rfbScreen = ref(null)
 
 onMounted(async () => {
   await loadRemotes()
 })
 
-async function loadRemotes() {
-  let resp = await fetch('/remote/list', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    }
-  })
 
-  let remotes = await resp.json() || []
-  remotes.forEach(remote => {
-    remote.pause = false
-  })
-  remotes.value = remotes
-  //console.log(remotes)
+function showTip(text, e) {
+  loading.value = false
+  console.log(text, e)
+}
+
+async function loadRemotes() {
+  try {
+    let resp = await fetch('/remote/list', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+    let items = await resp.json() || []
+    items.forEach(item => {
+      item.screenshot = undefined;
+      item.title = item.name || item.id
+      if (item.running) {
+        item.screenshot = `/screen/${item.id}?t=${Date.now()}`
+      }
+    })
+    remotes.value = items
+  } catch (e) {
+    showTip('Failed to load remotes', e)
+  }
+}
+
+async function stopRemote(id) {
+  try {
+    await fetch(`/remote/stop/${id}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({})
+    })
+  } catch (e) {
+    showTip('Failed to stop remote', e)
+  }
+}
+async function startRemote(id) {
+  try {
+    await fetch(`/remote/start/${id}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({})
+    })
+  } catch (e) {
+    showTip('Failed to start remote', e)
+  }
+}
+
+async function deleteRemote(id) {
+  try {
+    await fetch(`/remote/remove/${id}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({})
+    })
+  } catch (e) {
+    showTip('Failed to delete remote', e)
+  }
+}
+
+async function editRemote(item, { name, http_proxy, homepage }) {
+  try {
+    let resp = await fetch(`/remote/edit/${item.id}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ name, http_proxy, homepage })
+    })
+
+    let { name, http_proxy, homepage } = await resp.json();
+    item.name = name
+    item.http_proxy = http_proxy
+    item.homepage = homepage
+    item.title = item.name || item.id
+  } catch (e) {
+    showTip('Failed to edit remote', e)
+  }
+}
+
+async function doCreateRemote() {
+  loading.value = true
+  try {
+    await fetch('/remote/create', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({})
+    })
+    await loadRemotes()
+  } catch (e) {
+    showTip('Failed to create remote', e)
+  }
+  loading.value = false
 }
 
 async function onOpenWindow(item) {
-  showWindow.value = true
-  console.log(item)
+  current.value = item
+  tryConnectRemote(item)
+}
+
+async function onGoback() {
+  if (current.value.rfb) {
+    current.value.rfb.disconnect()
+    current.value.rfb = undefined
+  }
+
+  current.value = undefined
+  await loadRemotes()
 }
 
 async function handleUpload() {
@@ -44,19 +147,106 @@ async function handlePhoto(item) {
   console.log('photo', item)
 }
 
-function handlePause(item) {
-  // item.pause = !item.pause
-  console.log('pause', item)
+async function handleStop(item) {
+  loading.value = true
+  await stopRemote(item.id)
+  item.screenshot = undefined
+  loading.value = false
+  item.running = false
+
+  if (item.rfb) {
+    item.rfb.disconnect()
+    item.rfb = undefined
+  }
 }
 
-async function onDelete(item) {
+async function handleStart(item) {
+  loading.value = true
+  await startRemote(item.id)
+  loading.value = false
+  item.running = true
+  setTimeout(() => {
+    if (item.running) {
+      item.screenshot = `/screen/${item.id}`
+    }
+  }, 1000)
+}
+
+async function handleStartAndConnect(item) {
+  loading.value = true
+  await startRemote(item.id)
+  loading.value = false
+  item.running = true
+
+  setTimeout(() => {
+    tryConnectRemote(item)
+  }, 100)
+}
+
+const tryConnectTimerId = ref(null)
+
+function tryConnectRemote(item) {
+  if (tryConnectTimerId.value) {
+    return;
+  }
+
+  tryConnectTimerId.value = setInterval(() => {
+    connectRemote(current.value)
+  }, 50)
+}
+
+function connectRemote(item) {
+  let target = document.getElementById('rfb-screen');
+  if (!target) {
+    return;
+  }
+
+  if (item.rfb) {
+    item.rfb.disconnect()
+    item.rfb = undefined
+  }
+
+  clearInterval(tryConnectTimerId.value)
+  tryConnectTimerId.value = null
+
+  let scheme = window.location.protocol === 'https:' ? 'wss' : 'ws'
+  let url = `${scheme}://${window.location.host}/remote/connect/${item.id}`
+  let rfb = new RFB(target, url)
+
+  rfb.addEventListener("connect", (e) => {
+    rfb.scaleViewport = true
+  });
+
+  rfb.addEventListener("disconnect", (e) => {
+    console.log('disconnect', e)
+    item.rfb = undefined
+    item.screenshot = undefined
+  });
+
+  item.rfb = rfb
+}
+
+async function onShowConfirmDelete(item) {
   confirmVisible.value = true
-  console.log('delete', item)
+  confirmDeleteId.value = item.id
 }
 
 async function handleDelete() {
   confirmVisible.value = false
-  console.log('confirmDelete')
+  let id = confirmDeleteId.value
+  confirmDeleteId.value = null
+  if (id === null) {
+    return
+  }
+
+  if (current.value && current.value.id === id) {
+    current.value = null
+  }
+
+  loading.value = true
+  await deleteRemote(id)
+  loading.value = false
+  remotes.value = remotes.value.filter(item => item.id !== id)
 }
 
 async function handleFullscreen(item) {
@@ -75,29 +265,38 @@ async function handleFullscreen(item) {
     </div>
 
 
-    <div v-if="showWindow">
+    <div v-if="current">
       <div class="flex items-center justify-between border-b pb-2">
         <div class="flex items-center space-x-3">
-          <div class="cursor-pointer group flex mr-6" @click="showWindow = false">
+          <div class="cursor-pointer group flex mr-6" @click="onGoback()">
             <ArrowLongLeftIcon class="w-6 h-6 group-hover:text-sky-600" />
             <p class="group-hover:text-sky-600 font-semibold ml-2">Back</p>
           </div>
           <img src="../public/chrome.jpg" alt="" class="w-7 h-7">
-          <Input v-model:value="title" placeholder="www1(192.168.0.1)" class="w-40" />
+          <Input v-model:value="current.title" :placeholder="current.title" class="w-96" />
         </div>
 
         <div class="flex items-center space-x-4">
-          <ArrowUpTrayIcon class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer" @click="handleUpload()" />
-          <PhotoIcon class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer" @click="handlePhoto('a')" />
+          <ArrowUpTrayIcon class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer"
+            @click="handleUpload(current)" />
+          <PhotoIcon class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer" @click="handlePhoto(current)" />
           <ArrowsPointingOutIcon class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer"
-            @click="handleFullscreen('a')" />
-          <PlayIcon class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer" @click="handlePause('a')" />
-          <StopIcon class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer" @click="handlePause('a')" />
-          <TrashIcon class="w-6 h-6 text-gray-600 hover:text-red-600 cursor-pointer" @click="onDelete('a')" />
+            @click="handleFullscreen(current)" />
+          <PlayIcon v-if="!current.running" class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer"
+            @click="handleStartAndConnect(current)" />
+          <StopIcon v-else class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer" @click="handleStop(current)" />
+          <TrashIcon class="w-6 h-6 text-gray-600 hover:text-red-600 cursor-pointer"
+            @click="onShowConfirmDelete(current)" />
         </div>
       </div>
-      <div class="flex min-h-[40rem] my-6 bg-[#040a0f] w-full rounded-md">
-
+      <div v-if="current.running">
+        <div id="rfb-screen" class="flex min-h-[40rem] my-6 bg-[#040a0f] w-full rounded-md">
+        </div>
+      </div>
+      <div v-else="current.running" class="h-96 w-96 mx-auto mt-10">
+        <div class="rounded flex items-center justify-center w-full h-full text-white bg-gray-700">
+          <h1>Browser is shutdown</h1>
+        </div>
       </div>
     </div>
     <div v-else>
@@ -105,35 +304,42 @@ async function handleFullscreen(item) {
         <div class="flex items-center space-x-6">
 
           <div class="flex items-center space-x-2">
-            <Button>
+            <Button @click="doCreateRemote">
               Create Browser
             </Button>
-            <img src="../public/loading.png" alt="" class="w-5 h-5 animate-spin">
+            <img v-if="loading" src="../public/loading.png" alt="" class="w-5 h-5 animate-spin">
           </div>
 
 
         </div>
         <div class="flex space-x-6">
           <a href="#" class="hover:underline">Headless</a>
-          <a href="#"  class="hover:underline">Content API</a>
+          <a href="#" class="hover:underline">Content API</a>
         </div>
       </div>
 
       <div class="grid grid-cols-3 gap-6 mt-10">
-        <div v-for="(item, index) in 3" class="shadow bg-white rounded pt-2 group hover:shadow-lg">
+        <div v-for="item in remotes" class="shadow bg-white rounded pt-2 group hover:shadow-lg" :key="item.id">
           <div class="flex w-full justify-end space-x-3 px-5">
+            <StopIcon v-if="item.running"
+              class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer invisible group-hover:visible"
+              @click="handleStop(item)" />
+            <PlayIcon v-else class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer invisible group-hover:visible"
+              @click="handleStart(item)" />
 
-            <StopIcon v-if="item.pause" class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer invisible group-hover:visible"
-              @click="handlePause(item)" />
-            <PlayIcon v-else class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer invisible group-hover:visible" @click="handlePause(item)" />
-
-            <TrashIcon class="w-6 h-6 text-gray-600 hover:text-red-600 cursor-pointer invisible group-hover:visible" @click="onDelete(item)" />
+            <TrashIcon class="w-6 h-6 text-gray-600 hover:text-red-600 cursor-pointer invisible group-hover:visible"
+              @click="onShowConfirmDelete(item)" />
           </div>
           <div class="h-60 w-60 mx-auto cursor-pointer my-2" @click="onOpenWindow(item)">
-            <img src="../public/chrome.jpg" alt="" class="w-full h-full object-cover">
+            <div v-if="item.running">
+              <img v-show="item.screenshot" :src="item.screenshot" alt="" class="w-full h-full object-cover">
+            </div>
+            <div v-else class="flex items-center justify-center w-full h-full bg-gray-100">
+              <h1>Browser is shutdown</h1>
+            </div>
           </div>
-          <div class="flex items-center justify-between py-2 px-4 bg-gray-100 invisible group-hover:visible">
-            <p>www1(192.168.0.1)</p>
+          <div class="flex items-center justify-between py-2 px-4 bg-gray-100">
+            <p>{{ item.title }}</p>
             <img src="../public/chrome.jpg" alt="" class="w-6 h-6">
           </div>
         </div>
