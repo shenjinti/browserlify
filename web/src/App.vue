@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { PlayIcon, StopIcon, TrashIcon, PhotoIcon, ArrowsPointingOutIcon, ArrowUpTrayIcon } from '@heroicons/vue/24/outline'
+import { PlayIcon, StopIcon, TrashIcon, PhotoIcon, ArrowsPointingOutIcon, ArrowUpTrayIcon, ArrowLongLeftIcon } from '@heroicons/vue/24/outline'
 import Button from '../src/compotents/Button.vue'
 import Confirm from '../src/compotents/Confirm.vue'
 
@@ -55,7 +55,10 @@ async function handleMax(item) {
     <div v-if="showWindow">
       <div class="flex items-center justify-between border-b pb-2">
         <div class="flex items-center space-x-3">
-          <div class="cursor-pointer hover:text-blue-500 mr-6" @click="showWindow = false">back</div>
+          <div class="cursor-pointer group flex mr-6" @click="showWindow = false">
+            <ArrowLongLeftIcon class="w-6 h-6 group-hover:text-sky-600" />
+            <p class="group-hover:text-sky-600 font-semibold ml-2">Back</p>
+          </div>
           <img src="../public/chrome.jpg" alt="" class="w-7 h-7">
           <div class="flex items-center justify-between py-1 bg-gray-100 rounded-lg px-3">
             <p>www1(192.168.0.1)</p>
