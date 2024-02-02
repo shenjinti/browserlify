@@ -17,7 +17,7 @@ With Browserlify, you can easily access web content, automate testing with Headl
 ```bash
 docker run  -ti --rm --privileged  \
   -v `pwd`/data:/tmp/browserlify \
-  -p 9000:9000 shenjinti/browserlify
+  -p 9000:9000 shenjinti/browserlify:latest
 ```
 
 visit `http://localhost:9000`
