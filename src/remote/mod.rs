@@ -1,3 +1,5 @@
+use std::fs::remove_file;
+
 use self::x11vnc::{create_x11_session, X11SessionOption};
 use crate::{
     session::{kill_session, SessionGuard},
@@ -26,6 +28,7 @@ const REMOTE_SUFFIX: &str = ".remote.json";
 
 #[derive(Debug)]
 pub struct RemoteHandler {
+    pub(super) display_num: Option<i32>,
     pub(super) child_x11vnc: Option<tokio::process::Child>,
     pub(super) child_xvfb: Option<tokio::process::Child>,
     pub(super) shutdown_tx: Option<oneshot::Sender<()>>,
@@ -33,6 +36,9 @@ pub struct RemoteHandler {
 
 impl Drop for RemoteHandler {
     fn drop(&mut self) {
+        self.display_num
+            .take()
+            .map(|num| remove_file(format!("/tmp/.X{num}-lock")));
         self.child_x11vnc.take();
         self.child_xvfb.take();
         self.shutdown_tx.take();
@@ -44,6 +50,7 @@ pub struct CreateRemoteParams {
     pub id: Option<String>,
     pub name: Option<String>,
     pub homepage: Option<String>,
+    pub http_proxy: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -54,6 +61,7 @@ struct RemoteInfo {
     pub screen: Option<String>,
     pub binary: Option<String>,
     pub homepage: Option<String>,
+    pub http_proxy: Option<String>,
 }
 
 pub(crate) async fn list_remote(
@@ -110,6 +118,7 @@ pub(crate) async fn create_remote(
         screen: None,
         binary: None,
         homepage: params.homepage,
+        http_proxy: params.http_proxy,
     };
     let data = serde_json::to_string_pretty(&remote_info)?;
     fs::write(&remote_file, data).await?;
@@ -286,6 +295,7 @@ pub(crate) async fn start_remote(
         lc_ctype: std::env::var("LC_CTYPE").ok(),
         timezone: std::env::var("TZ").ok(),
         homepage: remote_info.homepage,
+        http_proxy: remote_info.http_proxy,
     };
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();

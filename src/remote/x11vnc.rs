@@ -9,7 +9,6 @@ use std::path::Path;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::SystemTime;
-use tokio::fs::remove_file;
 use tokio::{process::Command, select, sync::oneshot};
 pub struct X11SessionOption {
     pub id: String,
@@ -20,6 +19,7 @@ pub struct X11SessionOption {
     pub lc_ctype: Option<String>,
     pub timezone: Option<String>,
     pub homepage: Option<String>,
+    pub http_proxy: Option<String>,
 }
 
 lazy_static! {
@@ -144,6 +144,7 @@ pub(super) async fn create_x11_session(
     let id_ref = option.id.clone();
 
     let remote_handler = RemoteHandler {
+        display_num: Some(display_num),
         child_x11vnc: Some(x11vnc),
         child_xvfb: Some(xvfb),
         shutdown_tx: Some(remote_handler_tx),
@@ -153,6 +154,7 @@ pub(super) async fn create_x11_session(
     let lc_ctype = option.lc_ctype.clone();
     let timezone = option.timezone.clone();
     let homepage = option.homepage.clone();
+    let http_proxy = option.http_proxy.clone();
 
     let serve_browser = async move {
         let homepage = homepage.unwrap_or(DEFAULT_HOMEPAGE.to_string());
@@ -188,6 +190,10 @@ pub(super) async fn create_x11_session(
 
             lc_ctype.clone().map(|v| cmd.env("LC_CTYPE", v));
             timezone.clone().map(|v| cmd.env("TZ", v));
+            http_proxy.clone().map(|v| {
+                cmd.env("http_proxy", &v);
+                cmd.env("https_proxy", &v);
+            });
             match cmd.spawn() {
                 Ok(mut child) => {
                     child.wait().await.ok();
@@ -208,7 +214,6 @@ pub(super) async fn create_x11_session(
                 log::info!("remote_handler_rx shutdown id: {}", id_ref);
             }
         }
-        remove_file(format!("/tmp/.X{display_num}-lock")).await.ok();
         log::info!("shutdown remote sesson id: {} exit", id_ref);
     });
 
