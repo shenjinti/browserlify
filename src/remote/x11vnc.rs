@@ -75,11 +75,12 @@ pub(super) async fn create_x11_session(
         )
     })?;
 
-    let data_dir = Path::new(&option.data_dir);
+    let data_dir_str = option.data_dir.clone();
+    let data_dir = Path::new(&data_dir_str);
     let display_num = allow_xvfb_port()?;
     let display_num_str = format!(":{display_num}");
 
-    let screen = option.screen.unwrap_or("1280x1024x24+32".to_string());
+    let screen = option.screen.unwrap_or("1280x1024x24".to_string());
 
     let args = vec![
         &display_num_str,
@@ -150,17 +151,14 @@ pub(super) async fn create_x11_session(
         shutdown_tx: Some(remote_handler_tx),
     };
 
-    let user_data_dir = option.data_dir.clone();
-    let lc_ctype = option.lc_ctype.clone();
-    let timezone = option.timezone.clone();
-    let homepage = option.homepage.clone();
-    let http_proxy = option.http_proxy.clone();
-
     let serve_browser = async move {
-        let homepage = homepage.unwrap_or(DEFAULT_HOMEPAGE.to_string());
-        let output_file = Path::new(&user_data_dir).join("stdout.log");
+        let homepage = option
+            .homepage
+            .clone()
+            .unwrap_or(DEFAULT_HOMEPAGE.to_string());
 
-        let user_data_dir = format!("--user-data-dir={}", user_data_dir);
+        let output_file = Path::new(&option.data_dir).join("stdout.log");
+        let user_data_dir = format!("--user-data-dir={}", option.data_dir);
 
         loop {
             let args = vec![
@@ -188,11 +186,11 @@ pub(super) async fn create_x11_session(
                 .map(|f| cmd.stderr(Stdio::from(f)))
                 .ok();
 
-            lc_ctype.clone().map(|v| cmd.env("LC_CTYPE", v));
-            timezone.clone().map(|v| cmd.env("TZ", v));
-            http_proxy.clone().map(|v| {
-                cmd.env("http_proxy", &v);
-                cmd.env("https_proxy", &v);
+            option.lc_ctype.as_ref().map(|v| cmd.env("LC_CTYPE", v));
+            option.timezone.as_ref().map(|v| cmd.env("TZ", v));
+            option.http_proxy.as_ref().map(|v| {
+                cmd.env("http_proxy", v);
+                cmd.env("https_proxy", v);
             });
             match cmd.spawn() {
                 Ok(mut child) => {
@@ -220,7 +218,7 @@ pub(super) async fn create_x11_session(
     let session = Session {
         id: option.id.clone(),
         r#type: crate::session::SessionType::RemoteChrome,
-        data_dir: option.data_dir.clone(),
+        data_dir: data_dir_str,
         device: None,
         cleanup: false,
         enable_cache: false,
