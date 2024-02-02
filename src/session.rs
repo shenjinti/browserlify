@@ -150,10 +150,15 @@ pub(crate) async fn killall_session(State(state): State<StateRef>) {
     });
 }
 
+#[derive(Deserialize)]
+pub(crate) struct ScreenSessionParams {
+    percentage: Option<i32>,
+}
+
 /// Take a screenshot of the current browser (headless or remote)
 pub(crate) async fn screen_session(
     Path(session_id): Path<String>,
-    percentage: Query<Option<i32>>,
+    Query(params): Query<ScreenSessionParams>,
     State(state): State<StateRef>,
 ) -> Result<Response, crate::Error> {
     let session_type = state
@@ -169,7 +174,7 @@ pub(crate) async fn screen_session(
     match session_type {
         SessionType::Headless => screen_headless_screen(session_id, state).await,
         SessionType::RemoteChrome => {
-            let percentage = percentage.unwrap_or(50);
+            let percentage = params.percentage.unwrap_or(50);
             screen_remote_screen(percentage, session_id, state).await
         }
     }
