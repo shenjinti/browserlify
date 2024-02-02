@@ -1,15 +1,13 @@
-use crate::{devices::Device, StateRef};
+use crate::{
+    devices::Device, headless::screen_headless_screen, remote::screen_remote_screen, StateRef,
+};
 use axum::{
-    body::Body,
     extract::{Path, State},
     http::StatusCode,
-    response::{IntoResponse, Response},
+    response::Response,
     Json,
 };
-use chromiumoxide::{
-    cdp::browser_protocol::page::CaptureScreenshotFormat, page::ScreenshotParams, Browser, Handler,
-};
-use futures::StreamExt;
+use chromiumoxide::{Browser, Handler};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{cell::RefCell, time::SystemTime};
@@ -32,7 +30,7 @@ impl Default for SessionOption {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) enum SessionType {
     Headless,
     RemoteChrome,
@@ -53,7 +51,7 @@ pub(crate) struct Session {
     pub(crate) browser: RefCell<Option<Browser>>,
     pub(crate) headless_handler: RefCell<Option<Handler>>,
     #[cfg(feature = "remote")]
-    pub(crate) remote_handler_tx: Option<crate::remote::RemoteHandler>,
+    pub(crate) remote_handler: Option<crate::remote::RemoteHandler>,
 }
 
 impl Session {
@@ -71,7 +69,7 @@ pub struct CreateSessionParams {
 impl Drop for Session {
     fn drop(&mut self) {
         #[cfg(feature = "remote")]
-        self.remote_handler_tx.take();
+        self.remote_handler.take();
 
         match self.cleanup {
             true => match std::fs::remove_dir_all(&self.data_dir) {
@@ -157,38 +155,18 @@ pub(crate) async fn screen_session(
     Path(session_id): Path<String>,
     State(state): State<StateRef>,
 ) -> Result<Response, crate::Error> {
-    let endpoint_url = state
+    let session_type = state
         .sessions
         .lock()
         .unwrap()
         .iter()
         .find(|s| s.id == session_id)
         .ok_or_else(|| crate::Error::new(StatusCode::BAD_GATEWAY, "session not found"))?
-        .endpoint
+        .r#type
         .clone();
 
-    let (mut browser, mut handler) = Browser::connect(endpoint_url).await?;
-    let handler_job = tokio::spawn(async move { while let Some(_) = handler.next().await {} });
-
-    let params = ScreenshotParams::builder()
-        .format(CaptureScreenshotFormat::Png)
-        .build();
-
-    let screenshot = browser
-        .pages()
-        .await
-        .map(|pages| pages[0].clone())?
-        .screenshot(params)
-        .await?;
-
-    let mut response = Response::new(Body::from(screenshot));
-    response
-        .headers_mut()
-        .insert("Content-Type", "image/png".parse().unwrap());
-
-    browser.close().await.ok();
-    browser.wait().await.ok();
-    handler_job.abort();
-
-    Ok(response.into_response())
+    match session_type {
+        SessionType::Headless => screen_headless_screen(session_id, state).await,
+        SessionType::RemoteChrome => screen_remote_screen(session_id, state).await,
+    }
 }

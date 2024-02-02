@@ -8,7 +8,7 @@ const props = defineProps({
   },
   placeholder: {
     type: String,
-    default: '请输入内容',
+    default: 'Type here...',
   },
   type: {
     type: String,

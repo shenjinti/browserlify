@@ -1,4 +1,4 @@
-use std::fs::remove_file;
+use std::{fs::remove_file, time::Duration};
 
 use self::x11vnc::{create_x11_session, X11SessionOption};
 use crate::{
@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use tokio::{
     fs,
     io::{AsyncReadExt, AsyncWriteExt},
+    process::Command,
     select,
     sync::oneshot,
 };
@@ -77,7 +78,19 @@ pub(crate) async fn list_remote(
             match fs::read_to_string(&remote_file).await {
                 Ok(data) => {
                     let remote_info: RemoteInfo = serde_json::from_str(&data)?;
-                    remotes.push(remote_info);
+                    let data = json! {
+                        {
+                            "id": remote_info.id,
+                            "name": remote_info.name,
+                            "created_at": remote_info.created_at,
+                            "screen": remote_info.screen,
+                            "binary": remote_info.binary,
+                            "homepage": remote_info.homepage,
+                            "http_proxy": remote_info.http_proxy,
+                            "running": state.sessions.lock().unwrap().iter().any(|s| s.id == remote_info.id)
+                        }
+                    };
+                    remotes.push(data);
                 }
                 Err(e) => {
                     log::error!(
@@ -328,4 +341,49 @@ pub(crate) async fn remove_remote(
     kill_session(Path(remote_id.clone()), State(state.clone())).await;
     fs::remove_dir_all(&remote_dir).await?;
     Ok(Response::new("ok".into()))
+}
+
+pub(crate) async fn screen_remote_screen(
+    session_id: String,
+    state: StateRef,
+) -> Result<Response, crate::Error> {
+    let displya_num = state
+        .sessions
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|s| s.id == session_id)
+        .ok_or_else(|| crate::Error::new(StatusCode::BAD_GATEWAY, "session not found"))?
+        .remote_handler
+        .as_ref()
+        .ok_or_else(|| crate::Error::new(StatusCode::BAD_GATEWAY, "session not start"))?
+        .display_num
+        .ok_or_else(|| crate::Error::new(StatusCode::BAD_GATEWAY, "session not running"))?;
+
+    let temp_file = tempfile::NamedTempFile::new()?;
+    let temp_file_name = temp_file.path().to_str().unwrap().to_string();
+
+    let mut child = Command::new("scrot")
+        .kill_on_drop(true)
+        .args(&["-t", "50%", &temp_file_name])
+        .env("DISPLAY", &format!(":{}", displya_num))
+        .spawn()?;
+
+    let r = select! {
+        r = child.wait() => {
+            r.map_err(Into::into)
+        }
+        _ = tokio::time::sleep(Duration::from_secs(10)) => {
+            Err(crate::Error::new(StatusCode::BAD_GATEWAY, "scrot timeout"))
+        }
+    }?;
+
+    if r.success() {
+        let mut file = fs::File::open(&temp_file_name).await?;
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).await?;
+        Ok(Response::new(buf.into()))
+    } else {
+        Err(crate::Error::new(StatusCode::BAD_GATEWAY, "scrot fail"))
+    }
 }
