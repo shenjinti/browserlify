@@ -1,12 +1,13 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { PlayIcon, StopIcon, TrashIcon, PhotoIcon, ArrowsPointingOutIcon, ArrowUpTrayIcon, ArrowLongLeftIcon } from '@heroicons/vue/24/outline'
+import { PlayIcon, StopIcon, TrashIcon, PhotoIcon, ArrowsPointingOutIcon, ArrowUpTrayIcon, ArrowLongLeftIcon, PencilSquareIcon } from '@heroicons/vue/24/outline'
 import Button from '../src/compontents/Button.vue'
 import Confirm from '../src/compontents/Confirm.vue'
-import Input from '../src/compontents/Input.vue'
+// import Input from '../src/compontents/Input.vue'
 import RFB from '\@novnc/novnc/core/rfb.js';
 
 const loading = ref(false)
+const showEdit = ref(false)
 const confirmVisible = ref(false)
 const deletecontent = ref('Are you sure you want to delete?')
 const remotes = ref([])
@@ -87,14 +88,14 @@ async function deleteRemote(id) {
   }
 }
 
-async function editRemote(item, { name, http_proxy, homepage }) {
+async function editRemote(item, data) {
   try {
     let resp = await fetch(`/remote/edit/${item.id}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ name, http_proxy, homepage })
+      body: JSON.stringify(data)
     })
 
     let { name, http_proxy, homepage } = await resp.json();
@@ -253,12 +254,16 @@ async function handleFullscreen(item) {
   console.log('open', item)
 }
 
+async function handleTitlechange() {
+  await editRemote(current.value, { name: current.value.title })
+}
+
 </script>
 
 <template>
   <div class="max-w-7xl mx-auto py-7">
-    <div class="mb-5">
-      <a href="https://browserlify.com/" target="_blank" class="flex items-center space-x-2">
+    <div class="mb-5 w-36">
+      <a href="https://browserlify.com/" target="_blank" class="flex items-center space-x-2 w-auto">
         <img src="../public/logo.png" alt="" class="w-7 h-7">
         <span class="font-semibold text-lg text-gray-700">Browserlify</span>
       </a>
@@ -267,18 +272,31 @@ async function handleFullscreen(item) {
 
     <div v-if="current">
       <div class="flex items-center justify-between border-b pb-2">
-        <div class="flex items-center space-x-3">
+        <div class="flex items-center space-x-3 w-full">
           <div class="cursor-pointer group flex mr-6" @click="onGoback()">
             <ArrowLongLeftIcon class="w-6 h-6 group-hover:text-sky-600" />
             <p class="group-hover:text-sky-600 font-semibold ml-2">Back</p>
           </div>
           <img src="../public/chrome.jpg" alt="" class="w-7 h-7">
-          <Input v-model:value="current.title" :placeholder="current.title" class="w-96" />
+          <div class="flex items-center space-x-2 w-96">
+            <input v-if="showEdit" id="titleInput" ref="titleInput" v-model="current.title" type="text"
+              :placeholder="current.title" class="block w-full h-9 rounded-md border border-gray-300 py-1.5 pl-2 text-sm placeholder-gray-400 placeholder:text-xs
+                      focus:bg-white focus:text-gray-900 focus:placeholder-gray-500 focus:outline-none
+                      focus:border-secondary focus:ring-gray-200 sm:text-sm"
+              @keyup.enter="showEdit = false, handleTitlechange()" @change="handleTitlechange()"
+              @blur="showEdit = false, handleTitlechange()">
+            <div v-else class="flex justify-center items-center h-9">
+              <p>{{ current.title }}</p>
+            </div>
+
+            <PencilSquareIcon v-if="!showEdit" class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer"
+              @click="showEdit = true" />
+          </div>
         </div>
 
         <div class="flex items-center space-x-4">
-          <ArrowUpTrayIcon class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer"
-            @click="handleUpload(current)" />
+          <!-- <ArrowUpTrayIcon class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer"
+            @click="handleUpload(current)" /> -->
           <PhotoIcon class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer" @click="handlePhoto(current)" />
           <ArrowsPointingOutIcon class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer"
             @click="handleFullscreen(current)" />
@@ -304,9 +322,7 @@ async function handleFullscreen(item) {
         <div class="flex items-center space-x-6">
 
           <div class="flex items-center space-x-2">
-            <Button @click="doCreateRemote">
-              Create Browser
-            </Button>
+            <Button @click="doCreateRemote"> Create Browser </Button>
             <img v-if="loading" src="../public/loading.png" alt="" class="w-5 h-5 animate-spin">
           </div>
 
@@ -317,32 +333,39 @@ async function handleFullscreen(item) {
           <a href="#" class="hover:underline">Content API</a>
         </div>
       </div>
+      <template v-if="remotes.length > 0">
+        <div class="grid grid-cols-3 gap-6 mt-10">
+          <div v-for="item in remotes" class="shadow bg-white rounded pt-2 group hover:shadow-lg" :key="item.id">
 
-      <div class="grid grid-cols-3 gap-6 mt-10">
-        <div v-for="item in remotes" class="shadow bg-white rounded pt-2 group hover:shadow-lg" :key="item.id">
-          <div class="flex w-full justify-end space-x-3 px-5">
-            <StopIcon v-if="item.running"
-              class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer invisible group-hover:visible"
-              @click="handleStop(item)" />
-            <PlayIcon v-else class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer invisible group-hover:visible"
-              @click="handleStart(item)" />
+            <div class="flex w-full justify-end space-x-3 px-5">
+              <StopIcon v-if="item.running"
+                class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer invisible group-hover:visible"
+                @click="handleStop(item)" />
+              <PlayIcon v-else
+                class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer invisible group-hover:visible"
+                @click="handleStart(item)" />
 
-            <TrashIcon class="w-6 h-6 text-gray-600 hover:text-red-600 cursor-pointer invisible group-hover:visible"
-              @click="onShowConfirmDelete(item)" />
-          </div>
-          <div class="h-60 w-60 mx-auto cursor-pointer my-2" @click="onOpenWindow(item)">
-            <div v-if="item.running">
-              <img v-show="item.screenshot" :src="item.screenshot" alt="" class="w-full h-full object-cover">
+              <TrashIcon class="w-6 h-6 text-gray-600 hover:text-red-600 cursor-pointer invisible group-hover:visible"
+                @click="onShowConfirmDelete(item)" />
             </div>
-            <div v-else class="flex items-center justify-center w-full h-full bg-gray-100">
-              <h1>Browser is shutdown</h1>
+            <div class="min-h-80 bg-gray-50 mx-auto cursor-pointer flex items-center justify-center"
+              @click="onOpenWindow(item)">
+              <div v-if="item.running">
+                <img v-show="item.screenshot" :src="item.screenshot" alt="" class="w-full h-full">
+              </div>
+              <div v-else class="flex items-center justify-center w-full h-full">
+                <h1>Browser is shutdown</h1>
+              </div>
             </div>
-          </div>
-          <div class="flex items-center justify-between py-2 px-4 bg-gray-100">
-            <p>{{ item.title }}</p>
-            <img src="../public/chrome.jpg" alt="" class="w-6 h-6">
+            <div class="flex items-center justify-between py-2 px-4 bg-slate-200">
+              <p>{{ item.title }}</p>
+              <img src="../public/chrome.jpg" alt="" class="w-6 h-6">
+            </div>
           </div>
         </div>
+      </template>
+      <div v-else class="text-2xl flex justify-center items-center pt-10">
+        Create a remote browser first
       </div>
     </div>
     <Confirm v-model:open="confirmVisible" @positive-click="handleDelete()" title='Confirm delete' :content=deletecontent
