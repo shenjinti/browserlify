@@ -385,6 +385,7 @@ pub(crate) async fn remove_remote(
 }
 
 pub(crate) async fn screen_remote_screen(
+    percentage: i32,
     session_id: String,
     state: StateRef,
 ) -> Result<Response, crate::Error> {
@@ -406,7 +407,7 @@ pub(crate) async fn screen_remote_screen(
 
     let mut child = Command::new("scrot")
         .kill_on_drop(true)
-        .args(&["-t", "50%", &temp_file_name])
+        .args(&["-t", &percentage.to_string(), &temp_file_name])
         .env("DISPLAY", &format!(":{}", displya_num))
         .spawn()?;
 

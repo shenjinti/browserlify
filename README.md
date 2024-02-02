@@ -20,6 +20,8 @@ docker run  -ti --rm --privileged  \
   -p 9000:9000 shenjinti/browserlify
 ```
 
+visit `http://localhost:9000`
+
 ### Run via cargo & puppeteer (local development)
 > Note: you need to install puppeteer and rust first
 > remote browser Only tested on linux

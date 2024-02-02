@@ -147,8 +147,8 @@ async function handleUpload() {
 async function handleScreenshot(item) {
   if (item.running) {
     let a = document.createElement('a')
-    a.href = `/screen/${item.id}`
-    a.download = 'screenshot.png'
+    a.href = `/screen/${item.id}?percentage=100`
+    a.download = `${item.title}.png`
     a.click()
   }
 }
@@ -254,9 +254,6 @@ async function handleDelete() {
   remotes.value = remotes.value.filter(item => item.id !== id)
 }
 
-async function handleFullscreen(item) {
-  console.log('handleFullscreen', item)
-}
 
 async function handleTitlechange() {
   await editRemote(current.value, { name: current.value.title })
