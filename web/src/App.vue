@@ -3,12 +3,15 @@ import { ref, computed, onMounted } from 'vue'
 import { PlayIcon, StopIcon, TrashIcon, PhotoIcon, ArrowsPointingOutIcon, ArrowUpTrayIcon, ArrowLongLeftIcon } from '@heroicons/vue/24/outline'
 import Button from '../src/compotents/Button.vue'
 import Confirm from '../src/compotents/Confirm.vue'
+import Input from '../src/compotents/Input.vue'
 
-const isOpen = ref(false)
+const loading = ref(false)
 const showWindow = ref(false)
 const confirmVisible = ref(false)
 const deletecontent = ref('是否确认删除？')
 
+
+const title = ref('www1(192.168.0.1)')
 //打开窗口，并且showWindow为true
 async function onOpenWindow(item) {
   showWindow.value = true
@@ -51,7 +54,15 @@ async function handleMax(item) {
 </script>
 
 <template>
-  <div class="max-w-7xl mx-auto py-10">
+  <div class="max-w-7xl mx-auto py-7">
+    <div class="mb-5">
+      <a href="https://browserlify.com/" target="_blank" class="flex items-center space-x-2">
+        <img src="../public/logo.png" alt="" class="w-7 h-7">
+        <span class="font-semibold text-lg text-gray-700">Browserlify</span>
+      </a>
+    </div>
+
+
     <div v-if="showWindow">
       <div class="flex items-center justify-between border-b pb-2">
         <div class="flex items-center space-x-3">
@@ -60,9 +71,7 @@ async function handleMax(item) {
             <p class="group-hover:text-sky-600 font-semibold ml-2">Back</p>
           </div>
           <img src="../public/chrome.jpg" alt="" class="w-7 h-7">
-          <div class="flex items-center justify-between py-1 bg-gray-100 rounded-lg px-3">
-            <p>www1(192.168.0.1)</p>
-          </div>
+          <Input v-model:value="title" placeholder="www1(192.168.0.1)" class="w-40" />
         </div>
 
         <div class="flex items-center space-x-4">
@@ -81,22 +90,32 @@ async function handleMax(item) {
     </div>
     <div v-else>
       <div class="flex items-center justify-between">
-        <Button>Create Browser</Button>
-        <div class="flex space-x-4">
-          <Button>Headless</Button>
-          <Button>Content API</Button>
+        <div class="flex items-center space-x-6">
+
+          <div class="flex items-center space-x-2">
+            <Button>
+              Create Browser
+            </Button>
+            <img src="../public/loading.png" alt="" class="w-5 h-5 animate-spin">
+          </div>
+
+
+        </div>
+        <div class="flex space-x-6">
+          <a href="#" class="hover:underline">Headless</a>
+          <a href="#"  class="hover:underline">Content API</a>
         </div>
       </div>
 
       <div class="grid grid-cols-3 gap-6 mt-10">
-        <div v-for="(item, index) in 3" class="shadow bg-white rounded pt-2 group">
+        <div v-for="(item, index) in 3" class="shadow bg-white rounded pt-2 group hover:shadow-lg">
           <div class="flex w-full justify-end space-x-3 px-5">
 
-            <StopIcon v-if="item.pause" class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer"
+            <StopIcon v-if="item.pause" class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer invisible group-hover:visible"
               @click="handlePause(item)" />
-            <PlayIcon v-else class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer" @click="handlePause(item)" />
+            <PlayIcon v-else class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer invisible group-hover:visible" @click="handlePause(item)" />
 
-            <TrashIcon class="w-6 h-6 text-gray-600 hover:text-red-600 cursor-pointer" @click="onDelete(item)" />
+            <TrashIcon class="w-6 h-6 text-gray-600 hover:text-red-600 cursor-pointer invisible group-hover:visible" @click="onDelete(item)" />
           </div>
           <div class="h-60 w-60 mx-auto cursor-pointer my-2" @click="onOpenWindow(item)">
             <img src="../public/chrome.jpg" alt="" class="w-full h-full object-cover">
