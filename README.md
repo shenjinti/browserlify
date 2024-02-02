@@ -15,6 +15,8 @@ With Browserlify, you can easily access web content, automate testing with Headl
 
 ### How to run (via docker)
 ```bash
+mkdir `pwd`/data
+chmod 777 `pwd`/data
 docker run  -ti --rm --privileged  \
   -v `pwd`/data:/tmp/browserlify \
   -p 9000:9000 shenjinti/browserlify:latest
