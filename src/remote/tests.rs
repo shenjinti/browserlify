@@ -4,6 +4,11 @@ use crate::remote::x11vnc::{create_x11_session, X11SessionOption};
 
 #[tokio::test]
 async fn test_x11_session() {
+    if let Err(_) = which::which("x11vnc") {
+        log::warn!("x11vnc not found, skip test");
+        return;
+    }
+
     crate::init_log("info".to_string(), false);
     tokio::fs::create_dir_all("/tmp/browserlify_unittest")
         .await

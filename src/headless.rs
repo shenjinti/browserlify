@@ -6,7 +6,10 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use chromiumoxide::{browser::BrowserConfigBuilder, Browser};
+use chromiumoxide::{
+    browser::BrowserConfigBuilder, cdp::browser_protocol::page::CaptureScreenshotFormat,
+    page::ScreenshotParams, Browser,
+};
 use futures::{SinkExt, StreamExt};
 use tokio::{select, sync::oneshot};
 use tokio_tungstenite::tungstenite;
@@ -101,7 +104,7 @@ pub(crate) async fn create_headless_browser_session(
         created_at: SystemTime::now(),
         updated_at: RefCell::new(SystemTime::now()),
         #[cfg(feature = "remote")]
-        remote_handler_tx: None,
+        remote_handler: None,
     })
 }
 
@@ -208,4 +211,44 @@ pub(crate) async fn handle_headless_session(
         browser.kill().await;
     });
     Ok(r)
+}
+
+pub(crate) async fn screen_headless_screen(
+    session_id: String,
+    state: StateRef,
+) -> Result<Response, crate::Error> {
+    let endpoint_url = state
+        .sessions
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|s| s.id == session_id)
+        .ok_or_else(|| crate::Error::new(StatusCode::BAD_GATEWAY, "session not found"))?
+        .endpoint
+        .clone();
+
+    let (mut browser, mut handler) = Browser::connect(endpoint_url).await?;
+    let handler_job = tokio::spawn(async move { while let Some(_) = handler.next().await {} });
+
+    let params = ScreenshotParams::builder()
+        .format(CaptureScreenshotFormat::Png)
+        .build();
+
+    let screenshot = browser
+        .pages()
+        .await
+        .map(|pages| pages[0].clone())?
+        .screenshot(params)
+        .await?;
+
+    let mut response = Response::new(Body::from(screenshot));
+    response
+        .headers_mut()
+        .insert("Content-Type", "image/png".parse().unwrap());
+
+    browser.close().await.ok();
+    browser.wait().await.ok();
+    handler_job.abort();
+
+    Ok(response.into_response())
 }

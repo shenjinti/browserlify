@@ -228,7 +228,7 @@ pub(super) async fn create_x11_session(
         created_at: SystemTime::now(),
         updated_at: RefCell::new(SystemTime::now()),
         endpoint: format!("vnc://127.0.0.1:{}", x11vnc_port),
-        remote_handler_tx: Some(remote_handler),
+        remote_handler: Some(remote_handler),
     };
     Ok(session)
 }

@@ -617,13 +617,7 @@ pub async fn dump_text_post(
 async fn dump_text(params: RenderParams, state: StateRef) -> Result<Response, Error> {
     extrace_page("text", params, state, |_, _, _, page| async move {
         let content: String = page
-            .evaluate(
-                "{ let retVal = '';
-            if (document.documentElement) {
-                retVal = document.documentElement.innerText;
-            }
-            retVal}",
-            )
+            .evaluate("document.documentElement? document.documentElement.innerText:''")
             .await
             .map_err(|e| e.to_string())?
             .into_value()
@@ -639,6 +633,7 @@ pub async fn dump_html_get(
 ) -> Result<Response, Error> {
     dump_html(params, state).await
 }
+
 pub async fn dump_html_post(
     State(state): State<StateRef>,
     Json(body): Json<RenderParams>,

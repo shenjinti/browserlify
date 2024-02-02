@@ -1,15 +1,35 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { PlayIcon, StopIcon, TrashIcon, PhotoIcon, ArrowsPointingOutIcon, ArrowUpTrayIcon, ArrowLongLeftIcon } from '@heroicons/vue/24/outline'
-import Button from '../src/compotents/Button.vue'
-import Confirm from '../src/compotents/Confirm.vue'
+import Button from '../src/compontents/Button.vue'
+import Confirm from '../src/compontents/Confirm.vue'
 
 const isOpen = ref(false)
 const showWindow = ref(false)
 const confirmVisible = ref(false)
-const deletecontent = ref('是否确认删除？')
+const deletecontent = ref('Are you sure you want to delete?')
+const remotes = ref([])
 
-//打开窗口，并且showWindow为true
+onMounted(async () => {
+  await loadRemotes()
+})
+
+async function loadRemotes() {
+  let resp = await fetch('/remote/list', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+
+  let remotes = await resp.json() || []
+  remotes.forEach(remote => {
+    remote.pause = false
+  })
+  remotes.value = remotes
+  //console.log(remotes)
+}
+
 async function onOpenWindow(item) {
   showWindow.value = true
   console.log(item)
@@ -30,24 +50,18 @@ function handlePause(item) {
 
 async function onDelete(item) {
   confirmVisible.value = true
-
   console.log('delete', item)
 }
 
 async function handleDelete() {
   confirmVisible.value = false
-  deletecontent.value = '删除后将无法恢复，是否确认删除?'
   console.log('confirmDelete')
 }
 
-async function handleEnLarge(item) {
+async function handleFullscreen(item) {
   console.log('open', item)
 }
 
-// 放大
-async function handleMax(item) {
-  console.log('max', item)
-}
 </script>
 
 <template>
@@ -69,7 +83,7 @@ async function handleMax(item) {
           <ArrowUpTrayIcon class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer" @click="handleUpload()" />
           <PhotoIcon class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer" @click="handlePhoto('a')" />
           <ArrowsPointingOutIcon class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer"
-            @click="handleEnLarge('a')" />
+            @click="handleFullscreen('a')" />
           <PlayIcon class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer" @click="handlePause('a')" />
           <StopIcon class="w-6 h-6 text-gray-600 hover:text-sky-600 cursor-pointer" @click="handlePause('a')" />
           <TrashIcon class="w-6 h-6 text-gray-600 hover:text-red-600 cursor-pointer" @click="onDelete('a')" />
@@ -108,7 +122,7 @@ async function handleMax(item) {
         </div>
       </div>
     </div>
-    <Confirm v-model:open="confirmVisible" @positive-click="handleDelete()" title='确认删除' :content=deletecontent
+    <Confirm v-model:open="confirmVisible" @positive-click="handleDelete()" title='Confirm delete' :content=deletecontent
       width-class="max-w-lg">
     </Confirm>
   </div>

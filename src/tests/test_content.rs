@@ -102,6 +102,7 @@ async fn test_render_text() {
     assert_eq!(resp.headers()["content-type"], "plain/text");
     let body = resp.text().await.expect("get text fail");
     assert!(!body.contains("<body>"));
+    assert!(body.contains("MADE WITH CARE IN HANGZHOU"));
     drop(shutdown_tx);
     drop(http_shutdown_tx);
 }
@@ -127,6 +128,7 @@ async fn test_render_html() {
     assert_eq!(resp.headers()["content-type"], "text/html");
     let body = resp.text().await.expect("get text fail");
     assert!(body.contains("<!DOCTYPE html>"));
+    assert!(body.contains("MADE WITH CARE IN HANGZHOU"));
     drop(shutdown_tx);
     drop(http_shutdown_tx);
 }
