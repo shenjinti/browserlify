@@ -166,10 +166,22 @@ pub(super) async fn create_x11_session(
             .clone()
             .unwrap_or(DEFAULT_HOMEPAGE.to_string());
 
-        let output_file = Path::new(&option.data_dir).join("stdout.log");
+        let data_dir_path = Path::new(&option.data_dir);
+        let output_file = data_dir_path.join("stdout.log");
         let user_data_dir = format!("--user-data-dir={}", option.data_dir);
         let window_size = format!("--window-size={width},{height}");
+
         loop {
+            for f in vec![
+                data_dir_path.join("SingletonCookie"),
+                data_dir_path.join("SingletonLock"),
+                data_dir_path.join("SingletonSocket"),
+            ] {
+                if f.exists() {
+                    std::fs::remove_file(f).ok();
+                }
+            }
+
             let args = vec![
                 &user_data_dir,
                 "--disable-breakpad",
@@ -181,7 +193,6 @@ pub(super) async fn create_x11_session(
                 "--force-color-profile=srgb",
                 "--no-default-browser-check",
                 "--start-maximized",
-                "--no-sandbox",
                 &window_size,
                 &homepage,
             ];
