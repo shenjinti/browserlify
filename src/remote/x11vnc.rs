@@ -181,6 +181,7 @@ pub(super) async fn create_x11_session(
                 "--force-color-profile=srgb",
                 "--no-default-browser-check",
                 "--start-maximized",
+                "--no-sandbox",
                 &window_size,
                 &homepage,
             ];
