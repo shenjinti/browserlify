@@ -172,15 +172,15 @@ pub(super) async fn create_x11_session(
         let window_size = format!("--window-size={width},{height}");
 
         loop {
-            for f in vec![
+            vec![
                 data_dir_path.join("SingletonCookie"),
                 data_dir_path.join("SingletonLock"),
                 data_dir_path.join("SingletonSocket"),
-            ] {
-                if f.exists() {
-                    std::fs::remove_file(f).ok();
-                }
-            }
+            ]
+            .into_iter()
+            .for_each(|f| {
+                std::fs::remove_file(&f).ok();
+            });
 
             let args = vec![
                 &user_data_dir,
