@@ -1,9 +1,8 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { PlayIcon, StopIcon, TrashIcon, PhotoIcon, ArrowsPointingOutIcon, ArrowUpTrayIcon, ArrowLongLeftIcon, PencilSquareIcon } from '@heroicons/vue/24/outline'
-import Button from '../src/compontents/Button.vue'
-import Confirm from '../src/compontents/Confirm.vue'
-// import Input from '../src/compontents/Input.vue'
+import Button from './compontents/Button.vue'
+import Confirm from './compontents/Confirm.vue'
 import RFB from '\@novnc/novnc/core/rfb.js';
 
 const loading = ref(false)
@@ -13,7 +12,6 @@ const deletecontent = ref('Are you sure you want to delete?')
 const remotes = ref([])
 const current = ref(null)
 const confirmDeleteId = ref(null)
-const rfbScreen = ref(null)
 
 onMounted(async () => {
   await loadRemotes()
@@ -109,6 +107,9 @@ async function editRemote(item, data) {
 }
 
 async function doCreateRemote() {
+  if (loading.value === true) {
+    return
+  }
   loading.value = true
   try {
     await fetch('/remote/create', {
