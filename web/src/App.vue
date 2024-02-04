@@ -321,16 +321,18 @@ async function handleTitlechange() {
     </div>
     <div v-else>
       <div class="flex items-center justify-between">
-        <div class="flex items-center space-x-6">
-
+        <div></div>
+        <!-- <div class="flex items-center space-x-6">
           <div class="flex items-center space-x-2">
             <Button @click="doCreateRemote"> Create Browser </Button>
             <img v-if="loading" src="../public/loading.png" alt="" class="w-5 h-5 animate-spin">
           </div>
-
-
-        </div>
-        <div class="flex space-x-6">
+        </div> -->
+        <div class="flex items-center space-x-8">
+          <div class="flex items-center space-x-2">
+            <Button @click="doCreateRemote"> Create Browser </Button>
+            <img v-if="loading" src="../public/loading.png" alt="" class="w-5 h-5 animate-spin">
+          </div>
           <a href="#" class="hover:underline">Headless</a>
           <a href="#" class="hover:underline">Content API</a>
         </div>
