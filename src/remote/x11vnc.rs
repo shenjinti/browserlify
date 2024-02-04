@@ -25,7 +25,7 @@ pub struct X11SessionOption {
 lazy_static! {
     static ref X11VNC_PORT: AtomicI32 = AtomicI32::new(5900);
 }
-const DEFAULT_HOMEPAGE: &str = "https://browserlify.com/?from=docker";
+const DEFAULT_HOMEPAGE: &str = "https://browserlify.com/?startup=docker";
 
 fn allow_xvfb_port() -> Result<i32, crate::Error> {
     for idx in 100..1024 {
@@ -46,6 +46,13 @@ async fn allow_vnc_port() -> Result<i32, crate::Error> {
     let port = X11VNC_PORT.load(Ordering::Relaxed);
     for idx in 0..10 {
         let next_port = port + idx;
+        if next_port >= 8000 {
+            X11VNC_PORT.store(5900, Ordering::Relaxed);
+            return Err(crate::Error::new(
+                StatusCode::BAD_GATEWAY,
+                "no port available",
+            ));
+        }
         let addr = format!("127.0.0.1:{next_port}");
         if let Ok(_) = tokio::net::TcpListener::bind(addr.clone()).await {
             X11VNC_PORT.store(next_port + 1, Ordering::Relaxed);
