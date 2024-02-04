@@ -324,12 +324,12 @@ async function handleTitlechange() {
         <div></div>
         <div class="flex items-center space-x-6">
           <div class="flex items-center space-x-2">
-              <Button class="flex items-center space-x-2 group" @click="doCreateRemote"> 
-                <PlusIcon class="w-5 h-5 text-gray-600 group-hover:text-sky-600 cursor-pointer" />
-                <p>Create Browser</p>
-              </Button>
-
             <img v-if="loading" src="../public/loading.png" alt="" class="w-5 h-5 animate-spin">
+            <Button class="flex items-center space-x-2 group" @click="doCreateRemote">
+              <PlusIcon class="w-5 h-5 text-gray-600 group-hover:text-sky-600 cursor-pointer" />
+              <p>Create Browser</p>
+            </Button>
+
           </div>
           <a href="#" class="hover:underline">Headless</a>
           <a href="#" class="hover:underline">Content API</a>
