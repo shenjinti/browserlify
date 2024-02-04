@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { PlayIcon, StopIcon, TrashIcon, PhotoIcon, ArrowsPointingOutIcon, ArrowUpTrayIcon, ArrowLongLeftIcon, PencilSquareIcon } from '@heroicons/vue/24/outline'
+import { PlayIcon, StopIcon, TrashIcon, PhotoIcon, PlusIcon, ArrowsPointingOutIcon, ArrowUpTrayIcon, ArrowLongLeftIcon, PencilSquareIcon } from '@heroicons/vue/24/outline'
 import Button from './compontents/Button.vue'
 import Confirm from './compontents/Confirm.vue'
 import RFB from '\@novnc/novnc/core/rfb.js';
@@ -320,17 +320,17 @@ async function handleTitlechange() {
       </div>
     </div>
     <div v-else>
-      <div class="flex items-center justify-between">
+      <div class="flex items-center justify-between text-sm">
+        <div></div>
         <div class="flex items-center space-x-6">
-
           <div class="flex items-center space-x-2">
-            <Button @click="doCreateRemote"> Create Browser </Button>
+              <Button class="flex items-center space-x-2 group" @click="doCreateRemote"> 
+                <PlusIcon class="w-5 h-5 text-gray-600 group-hover:text-sky-600 cursor-pointer" />
+                <p>Create Browser</p>
+              </Button>
+
             <img v-if="loading" src="../public/loading.png" alt="" class="w-5 h-5 animate-spin">
           </div>
-
-
-        </div>
-        <div class="flex space-x-6">
           <a href="#" class="hover:underline">Headless</a>
           <a href="#" class="hover:underline">Content API</a>
         </div>
