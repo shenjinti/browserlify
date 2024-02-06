@@ -24,7 +24,7 @@ const colors = {
     sm:w-auto" :class="[colors[type], {
         'px-2 py-1': size === 'sm',
         'px-3 py-2.5 sm:py-2': size === 'base',
-        'px-10 py-4': size === 'lg',
+        'px-5 py-3.5': size === 'lg',
     }]">
         <slot />
     </button>

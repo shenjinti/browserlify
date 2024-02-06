@@ -2,16 +2,29 @@
 import { ref, onMounted } from 'vue'
 import { PlayIcon, StopIcon, TrashIcon, PhotoIcon, PlusIcon, ArrowsPointingOutIcon, ArrowUpTrayIcon, ArrowLongLeftIcon, PencilSquareIcon } from '@heroicons/vue/24/outline'
 import Button from './compontents/Button.vue'
+import Input from './compontents/Input.vue'
 import Confirm from './compontents/Confirm.vue'
+import Select from './compontents/Select.vue'
+import Modal from './compontents/Modal.vue'
 import RFB from '\@novnc/novnc/core/rfb.js';
 
 const loading = ref(false)
 const showEdit = ref(false)
+const showModal = ref(false)
 const confirmVisible = ref(false)
 const deletecontent = ref('Are you sure you want to delete?')
 const remotes = ref([])
 const current = ref(null)
 const confirmDeleteId = ref(null)
+
+const params = ref({
+  browser: 'chrome',
+  name: '',
+  http_proxy: '',
+  screen: '1280x1024x24',
+  locale: '',
+  timezone: '',
+})
 
 onMounted(async () => {
   await loadRemotes()
@@ -325,8 +338,8 @@ async function handleTitlechange() {
         <div class="flex items-center space-x-6">
           <div class="flex items-center space-x-2">
             <img v-if="loading" src="../public/loading.png" alt="" class="w-5 h-5 animate-spin">
-            <Button class="flex items-center space-x-2 group" @click="doCreateRemote">
-              <PlusIcon class="w-5 h-5 text-gray-600 group-hover:text-sky-600 cursor-pointer" />
+            <Button type="primary" class="flex items-center space-x-2 group" @click="showModal=true">
+              <PlusIcon class="w-5 h-5" />
               <p>Create Browser</p>
             </Button>
 
@@ -369,6 +382,51 @@ async function handleTitlechange() {
       <div v-else class="text-xl flex justify-center items-center pt-16 text-gray-600">
         Create a remote browser first
       </div>
+      <Modal v-model="showModal">
+        <div class="space-y-8 px-8">
+          <div class="flex items-center">
+            <p class="w-20 text-gray-600 shrink-0">Browser</p>
+            <div v-for="item in [{ img: './chrome.png', name: 'chrome' }, { img: './firefox.png', name: 'firefox' }]">
+              <img :src="item.img" alt=""
+                class="w-28 rounded-full cursor-pointer ring-primary hover:ring-2 hover:scale-105 duration-200 mr-12"
+                :class="[params.browser === item.name ? 'ring-primary ring-2' : '']" @click="params.browser = item.name">
+            </div>
+
+            <!-- <img src="../public/chrome.png" alt="" class="w-28 rounded-full cursor-pointer ring-primary hover:ring-2 hover:scale-105 duration-200">
+            <img src="../public/firefox.png" alt="" class="w-28 ml-12 rounded-full cursor-pointer ring-primary hover:ring-2 hover:scale-105 duration-200"> -->
+          </div>
+
+          <div class="flex items-center">
+            <p class="w-20 shrink-0 text-gray-600">Screen</p>
+            <div
+              v-for="item in [{ label:'1400x900',size: '1400x900x24', style: 'w-[140px] h-[90px]' }, {label:'1280x1024', size: '1280x1024x24', style: 'w-[128px] h-[102px]' }]">
+              <div
+                class="p-0.5 cursor-pointer duration-200 hover:scale-105  ring-2 ring-transparent hover:ring-primary mr-5 rounded-md"
+                :class="[item.style, params.screen === item.size ? 'ring-primary ring-2' : '']"
+                @click="params.screen = item.size">
+                <div class="h-full w-full flex justify-center items-center bg-gray-700 text-white rounded-md">
+                  <p>{{ item.label }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="space-y-7">
+            <Input v-model:value="params.name" placeholder="Browser name" />
+            <Input v-model:value="params.http_proxy" placeholder="Proxy, eg.  https:// http:// socks5:// value" />
+          </div>
+          <div class="flex items-center space-x-4">
+            <Select v-model:value="params.locale"
+              :options="[{ label: 'en-US', value: 'en-US' }, { label: 'zh-CN', value: 'zh-CN' }]" placeholder="Locale"/>
+            <Select v-model:value="params.timezone"
+              :options="[{ label: 'en-US', value: 'en-US' }, { label: 'zh-CN', value: 'zh-CN' }]"
+              placeholder="Timezone" />
+          </div>
+
+          <div class="flex items-center justify-end">
+            <Button type="primary" size="lg" @click="doCreateRemote(params)">Create Browser</Button>
+          </div>
+        </div>
+      </Modal>
     </div>
     <Confirm v-model:open="confirmVisible" @positive-click="handleDelete()" title='Confirm delete' :content=deletecontent
       width-class="max-w-lg">

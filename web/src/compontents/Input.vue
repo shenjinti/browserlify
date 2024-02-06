@@ -83,7 +83,7 @@ defineExpose({ validate })
           <slot name="prefix" />
         </div>
         <div>
-          <input ref="inputRef" v-model="value" :type="type" :placeholder="placeholder" :disabled="disabled" class="block w-full rounded-md border border-gray-300 py-1.5 text-sm placeholder-gray-400 placeholder:text-xs
+          <input ref="inputRef" v-model="value" :type="type" :placeholder="placeholder" :disabled="disabled" class="block w-full px-2 rounded-md border border-gray-300 focus:border-primary  py-1.5 text-sm focus:ring-1 ring-indigo-600 placeholder-gray-400 placeholder:text-xs
            focus:bg-white focus:text-gray-900 focus:placeholder-gray-500 focus:outline-none
             focus:border-secondary focus:ring-secondary sm:text-sm"
             @keyup.enter="$emit('onKeyUpEnter')" @change="onUpdateValue" @blur="onUpdateValue">
