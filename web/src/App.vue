@@ -378,7 +378,7 @@ async function handleTitlechange() {
             <div class="flex items-center justify-between py-2 px-4 bg-slate-200">
               <p>{{ item.title }}</p>
 
-              <img v-if="/firefox/i.test(current.binary)" src="../public/firefox.png" alt="" class="w-7 h-7">
+              <img v-if="/firefox/i.test(item.binary)" src="../public/firefox.png" alt="" class="w-7 h-7">
               <img v-else src="../public/chrome.png" alt="" class="w-7 h-7">
             </div>
           </div>
