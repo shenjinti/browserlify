@@ -17,11 +17,11 @@ const remotes = ref([])
 const current = ref(null)
 const confirmDeleteId = ref(null)
 
-const params = ref({
-  browser: 'chrome',
+const createParams = ref({
+  binary: 'chromium',
   name: '',
   http_proxy: '',
-  screen: '1280x1024x24',
+  screen: '1400x900x24',
   locale: '',
   timezone: '',
 })
@@ -120,6 +120,8 @@ async function editRemote(item, data) {
 }
 
 async function doCreateRemote() {
+  showModal.value = false
+
   if (loading.value === true) {
     return
   }
@@ -130,7 +132,7 @@ async function doCreateRemote() {
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({})
+      body: JSON.stringify(createParams.value)
     })
     await loadRemotes()
   } catch (e) {
@@ -292,7 +294,8 @@ async function handleTitlechange() {
             <ArrowLongLeftIcon class="w-6 h-6 group-hover:text-sky-600" />
             <p class="group-hover:text-sky-600 font-semibold ml-2">Back</p>
           </div>
-          <img src="../public/chrome.png" alt="" class="w-7 h-7">
+          <img v-if="/firefox/i.test(current.binary)" src="../public/firefox.png" alt="" class="w-7 h-7">
+          <img v-else src="../public/chrome.png" alt="" class="w-7 h-7">
           <div class="flex items-center space-x-2 w-96">
             <input v-if="showEdit" id="titleInput" ref="titleInput" v-model="current.title" type="text"
               :placeholder="current.title" class="block w-full h-9 rounded-md border border-gray-300 py-1.5 pl-2 text-sm placeholder-gray-400 placeholder:text-xs
@@ -338,7 +341,7 @@ async function handleTitlechange() {
         <div class="flex items-center space-x-6">
           <div class="flex items-center space-x-2">
             <img v-if="loading" src="../public/loading.png" alt="" class="w-5 h-5 animate-spin">
-            <Button type="primary" class="flex items-center space-x-2 group" @click="showModal=true">
+            <Button type="primary" class="flex items-center space-x-2 group" @click="showModal = true">
               <PlusIcon class="w-5 h-5" />
               <p>Create Browser</p>
             </Button>
@@ -374,7 +377,9 @@ async function handleTitlechange() {
             </div>
             <div class="flex items-center justify-between py-2 px-4 bg-slate-200">
               <p>{{ item.title }}</p>
-              <img src="../public/chrome.png" alt="" class="w-6 h-6">
+
+              <img v-if="/firefox/i.test(current.binary)" src="../public/firefox.png" alt="" class="w-7 h-7">
+              <img v-else src="../public/chrome.png" alt="" class="w-7 h-7">
             </div>
           </div>
         </div>
@@ -384,26 +389,22 @@ async function handleTitlechange() {
       </div>
       <Modal v-model="showModal">
         <div class="space-y-8 px-8">
-          <div class="flex items-center">
+          <!-- <div class="flex items-center">
             <p class="w-20 text-gray-600 shrink-0">Browser</p>
             <div v-for="item in [{ img: './chrome.png', name: 'chrome' }, { img: './firefox.png', name: 'firefox' }]">
               <img :src="item.img" alt=""
                 class="w-28 rounded-full cursor-pointer ring-primary hover:ring-2 hover:scale-105 duration-200 mr-12"
-                :class="[params.browser === item.name ? 'ring-primary ring-2' : '']" @click="params.browser = item.name">
+                :class="[createParams.binary === item.name ? 'ring-primary ring-2' : '']"
+                @click="createParams.binary = item.name">
             </div>
-
-            <!-- <img src="../public/chrome.png" alt="" class="w-28 rounded-full cursor-pointer ring-primary hover:ring-2 hover:scale-105 duration-200">
-            <img src="../public/firefox.png" alt="" class="w-28 ml-12 rounded-full cursor-pointer ring-primary hover:ring-2 hover:scale-105 duration-200"> -->
-          </div>
-
+          </div> -->
           <div class="flex items-center">
             <p class="w-20 shrink-0 text-gray-600">Screen</p>
             <div
-              v-for="item in [{ label:'1400x900',size: '1400x900x24', style: 'w-[140px] h-[90px]' }, {label:'1280x1024', size: '1280x1024x24', style: 'w-[128px] h-[102px]' }]">
-              <div
-                class="p-0.5 cursor-pointer duration-200 hover:scale-105  ring-2 ring-transparent hover:ring-primary mr-5 rounded-md"
-                :class="[item.style, params.screen === item.size ? 'ring-primary ring-2' : '']"
-                @click="params.screen = item.size">
+              v-for="item in [{ label: '1400x900', size: '1400x900x24', style: 'w-[140px] h-[90px]' }, { label: '1280x1024', size: '1280x1024x24', style: 'w-[128px] h-[102px]' }]">
+              <div class="p-0.5 cursor-pointer duration-200 hover:scale-105  ring-1 hover:ring-primary mr-5 rounded-md"
+                :class="[item.style, createParams.screen === item.size ? 'ring-primary ring-2' : 'ring-transparent']"
+                @click="createParams.screen = item.size">
                 <div class="h-full w-full flex justify-center items-center bg-gray-700 text-white rounded-md">
                   <p>{{ item.label }}</p>
                 </div>
@@ -411,19 +412,22 @@ async function handleTitlechange() {
             </div>
           </div>
           <div class="space-y-7">
-            <Input v-model:value="params.name" placeholder="Browser name" />
-            <Input v-model:value="params.http_proxy" placeholder="Proxy, eg.  https:// http:// socks5:// value" />
+            <Input v-model:value="createParams.name" placeholder="Browser name" />
+            <Input v-model:value="createParams.homepage" placeholder="Homepage for startup" />
+            <Input v-model:value="createParams.http_proxy"
+              placeholder="Proxy address, start with https:// http:// socks5:// " />
           </div>
           <div class="flex items-center space-x-4">
-            <Select v-model:value="params.locale"
-              :options="[{ label: 'en-US', value: 'en-US' }, { label: 'zh-CN', value: 'zh-CN' }]" placeholder="Locale"/>
-            <Select v-model:value="params.timezone"
-              :options="[{ label: 'en-US', value: 'en-US' }, { label: 'zh-CN', value: 'zh-CN' }]"
+            <Select v-model:value="createParams.locale"
+              :options="[{ label: 'English(US)', value: 'en-US' }, { label: '简体中文', value: 'zh-CN' }]"
+              placeholder="Locale" />
+            <Select v-model:value="createParams.timezone"
+              :options="[{ label: 'America/New York', value: 'America/New_York' }, { label: 'Asia/Shanghai', value: 'Asia/Shanghai' }]"
               placeholder="Timezone" />
           </div>
 
           <div class="flex items-center justify-end">
-            <Button type="primary" size="lg" @click="doCreateRemote(params)">Create Browser</Button>
+            <Button type="primary" size="lg" @click="doCreateRemote(createParams)">Create Browser</Button>
           </div>
         </div>
       </Modal>

@@ -52,6 +52,10 @@ pub struct CreateRemoteParams {
     pub name: Option<String>,
     pub homepage: Option<String>,
     pub http_proxy: Option<String>,
+    pub locale: Option<String>,
+    pub timezone: Option<String>,
+    pub screen: Option<String>,
+    pub binary: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -63,6 +67,8 @@ struct RemoteInfo {
     pub binary: Option<String>,
     pub homepage: Option<String>,
     pub http_proxy: Option<String>,
+    pub locale: Option<String>,
+    pub timezone: Option<String>,
 }
 
 pub(crate) async fn list_remote(
@@ -87,6 +93,8 @@ pub(crate) async fn list_remote(
                             "binary": remote_info.binary,
                             "homepage": remote_info.homepage,
                             "http_proxy": remote_info.http_proxy,
+                            "locale": remote_info.locale,
+                            "timezone": remote_info.timezone,
                             "running": state.sessions.lock().unwrap().iter().any(|s| s.id == remote_info.id)
                         }
                     };
@@ -128,10 +136,12 @@ pub(crate) async fn create_remote(
         id: id.clone(),
         name: params.name,
         created_at: chrono::Local::now().to_rfc3339(),
-        screen: None,
-        binary: None,
+        screen: params.screen,
+        binary: params.binary,
         homepage: params.homepage,
         http_proxy: params.http_proxy,
+        locale: params.locale,
+        timezone: params.timezone,
     };
     let data = serde_json::to_string_pretty(&remote_info)?;
     fs::write(&remote_file, data).await?;
@@ -346,8 +356,8 @@ pub(crate) async fn start_remote(
         data_dir: remote_dir.to_str().unwrap().to_string(),
         screen: remote_info.screen,
         binary: remote_info.binary,
-        lc_ctype: std::env::var("LC_CTYPE").ok(),
-        timezone: std::env::var("TZ").ok(),
+        lc_ctype: remote_info.locale,
+        timezone: remote_info.timezone,
         homepage: remote_info.homepage,
         http_proxy: remote_info.http_proxy,
     };
