@@ -70,7 +70,35 @@ pub(crate) async fn create_headless_browser_session(
     let id = uuid::Uuid::new_v4().to_string();
     let data_dir = format!("{}/{}", state.data_root.trim_end_matches("/"), id);
 
-    let config = BrowserConfigBuilder::default().user_data_dir(&data_dir);
+    let config = BrowserConfigBuilder::default()
+        .disable_default_args()
+        .args(vec![
+            "--enable-features=NetworkService,NetworkServiceInProcess",
+            "--disable-background-timer-throttling",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-breakpad",
+            "--disable-client-side-phishing-detection",
+            "--disable-component-extensions-with-background-pages",
+            "--disable-default-apps",
+            "--disable-dev-shm-usage",
+            "--disable-extensions",
+            "--disable-features=TranslateUI",
+            "--disable-hang-monitor",
+            "--disable-ipc-flooding-protection",
+            "--disable-popup-blocking",
+            "--disable-prompt-on-repost",
+            "--disable-renderer-backgrounding",
+            "--disable-sync",
+            "--force-color-profile=srgb",
+            "--metrics-recording-only",
+            "--no-first-run",
+            "--enable-automation",
+            "--password-store=basic",
+            "--use-mock-keychain",
+            "--enable-blink-features=IdleDetection",
+            "--lang=en_US",
+        ])
+        .user_data_dir(&data_dir);
 
     let config = match opt.enable_cache {
         true => config,
