@@ -451,7 +451,15 @@ where
             }
         };
 
-        let wait_timeout = params.wait_load.unwrap_or(15 * 1000).max(state.max_timeout); // 15 seconds
+        let wait_timeout = params.wait_load.unwrap_or(15 * 1000).min(state.max_timeout); // 15 seconds
+        log::info!(
+            "{} {} wait load timeout: {:?} selector:{:?} wait_load:{:?}",
+            cmd,
+            params.url,
+            wait_timeout,
+            params.wait_selector,
+            params.wait_load
+        );
         select! {
             _ = time::sleep(time::Duration::from_millis(wait_timeout)) => {
                 log::warn!("{} {} wait load timeout wait_load:{:?} selector:{:?} images:{:?} network_idle:{:?} page_ready:{:?}", cmd,

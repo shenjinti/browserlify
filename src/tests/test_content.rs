@@ -97,7 +97,7 @@ async fn test_render_text() {
 
     let url = format!("http://{}/text?url={}", addr, urlencoding::encode(&target));
 
-    let resp = reqwest::get(&url).await.expect("get api/screenshot fail");
+    let resp = reqwest::get(&url).await.expect("get api/text fail");
     assert!(resp.status().is_success());
     assert_eq!(resp.headers()["content-type"], "plain/text");
     let body = resp.text().await.expect("get text fail");
@@ -123,12 +123,51 @@ async fn test_render_html() {
 
     let url = format!("http://{}/html?url={}", addr, urlencoding::encode(&target));
 
-    let resp = reqwest::get(&url).await.expect("get api/screenshot fail");
+    let resp = reqwest::get(&url).await.expect("get api/html fail");
     assert!(resp.status().is_success());
     assert_eq!(resp.headers()["content-type"], "text/html");
-    let body = resp.text().await.expect("get text fail");
+    let body = resp.text().await.expect("get html fail");
     assert!(body.contains("<!DOCTYPE html>"));
     assert!(body.contains("MADE WITH CARE IN HANGZHOU"));
+    drop(shutdown_tx);
+    drop(http_shutdown_tx);
+}
+
+#[tokio::test]
+async fn test_wait_load() {
+    init_log("info".to_string(), false);
+
+    let addr = "127.0.0.1:9008";
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+    serve_test_server(shutdown_rx, addr.to_string()).await;
+
+    let (http_shutdown_tx, http_shutdown_rx) = tokio::sync::oneshot::channel();
+    let http_addr = serve_test_http_server(http_shutdown_rx)
+        .await
+        .expect("serve http fail");
+    let target = format!("http://{http_addr}/?from=unittest");
+
+    let url = format!("http://{}/text?url={}", addr, urlencoding::encode(&target));
+
+    let resp = reqwest::get(&url).await.expect("get api/html fail");
+    assert!(resp.status().is_success());
+    assert_eq!(resp.headers()["content-type"], "plain/text");
+    let body = resp.text().await.expect("get text fail");
+    assert!(!body.contains("After Done"));
+    let selector = urlencoding::encode("#done");
+    let url = format!(
+        "http://{}/text?selector={selector}&wait_load=3000&url={}",
+        addr,
+        urlencoding::encode(&target)
+    );
+    let st = std::time::Instant::now();
+    let resp = reqwest::get(&url).await.expect("get api/html fail");
+    assert!(resp.status().is_success());
+    assert_eq!(resp.headers()["content-type"], "plain/text");
+    let body = resp.text().await.expect("get text fail");
+    assert!(body.contains("After Done"));
+    assert!(st.elapsed().as_millis() <= 2000);
+
     drop(shutdown_tx);
     drop(http_shutdown_tx);
 }

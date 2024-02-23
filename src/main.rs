@@ -194,10 +194,15 @@ async fn main() -> std::io::Result<()> {
         )
     }
 
-    let app = Router::new().nest(&prefix, router);
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .try_init()
+        .ok();
+    let app = Router::new()
+        .nest(&prefix, router)
+        .layer(tower_http::trace::TraceLayer::new_for_http());
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     log::warn!("Starting server on {} -> {}", addr, prefix);
-    axum::serve(listener, app).await.unwrap();
-    Ok(())
+    axum::serve(listener, app).await
 }
