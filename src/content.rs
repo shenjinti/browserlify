@@ -29,7 +29,7 @@ use tokio::{select, sync::oneshot, time};
 #[derive(Deserialize)]
 pub struct RenderParams {
     url: String,
-    uuid: Option<String>,
+    id: Option<String>,
     expired: Option<u64>,
     file_name: Option<String>,
     // total timeout in milliseconds
@@ -96,10 +96,11 @@ pub struct RenderParams {
 impl From<&RenderParams> for SessionOption {
     fn from(params: &RenderParams) -> SessionOption {
         SessionOption {
-            uuid: params.uuid.clone(),
+            uuid: params.id.clone(),
             cleanup: params.expired.is_none(),
             enable_cache: params.expired.is_some(),
             landscape: params.landscape.unwrap_or_default(),
+            userdatadir_expire: params.expired,
         }
     }
 }

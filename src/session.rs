@@ -1,6 +1,4 @@
-use crate::{
-    devices::Device, headless::screen_headless_screen, remote::screen_remote_screen, StateRef,
-};
+use crate::{devices::Device, StateRef};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -19,6 +17,7 @@ pub(crate) struct SessionOption {
     pub landscape: bool,
     pub cleanup: bool,
     pub enable_cache: bool,
+    pub userdatadir_expire: Option<u64>,
 }
 
 impl Default for SessionOption {
@@ -28,13 +27,16 @@ impl Default for SessionOption {
             landscape: false,
             cleanup: true,
             enable_cache: false,
+            userdatadir_expire: None,
         }
     }
 }
 
 #[derive(Debug, Clone)]
 pub(crate) enum SessionType {
+    #[cfg(feature = "headless")]
     Headless,
+    #[cfg(feature = "remote")]
     RemoteChrome,
 }
 #[derive(Debug)]
@@ -160,13 +162,14 @@ pub(crate) async fn killall_session(State(state): State<StateRef>) {
 
 #[derive(Deserialize)]
 pub(crate) struct ScreenSessionParams {
+    #[cfg(feature = "remote")]
     percentage: Option<i32>,
 }
 
 /// Take a screenshot of the current browser (headless or remote)
 pub(crate) async fn screen_session(
     Path(session_id): Path<String>,
-    Query(params): Query<ScreenSessionParams>,
+    Query(_params): Query<ScreenSessionParams>,
     State(state): State<StateRef>,
 ) -> Result<Response, crate::Error> {
     let session_type = state
@@ -180,10 +183,12 @@ pub(crate) async fn screen_session(
         .clone();
 
     match session_type {
-        SessionType::Headless => screen_headless_screen(session_id, state).await,
+        #[cfg(feature = "headless")]
+        SessionType::Headless => crate::headless::screen_headless_screen(session_id, state).await,
+        #[cfg(feature = "remote")]
         SessionType::RemoteChrome => {
-            let percentage = params.percentage.unwrap_or(50);
-            screen_remote_screen(percentage, session_id, state).await
+            let percentage = _params.percentage.unwrap_or(50);
+            crate::remote::screen_remote_screen(percentage, session_id, state).await
         }
     }
 }
