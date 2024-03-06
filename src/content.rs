@@ -23,7 +23,6 @@ use chromiumoxide::{
 use futures::{Future, StreamExt};
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use tokio::{select, sync::oneshot, time};
 
@@ -402,12 +401,6 @@ where
     const SLEEP_INTERVAL: u64 = 10;
 
     let _guard = SessionGuard::new(state.clone(), session);
-    let load_usage = Arc::new(Mutex::new(None));
-    let load_usage_clone = load_usage.clone();
-
-    let callback_usage = Arc::new(Mutex::new(None));
-    let callback_usage_clone = load_usage.clone();
-
     let render_loop = async {
         let page = browser
             .new_page(params.url.as_str())
@@ -478,20 +471,11 @@ where
                 params.url, params.wait_load, params.wait_selector,
                 params.wait_images, params.wait_network_idle, params.wait_page_ready);
             }
-            _ = wait_something => {}
+            _ = wait_something => {
+                log::info!("{} {} wait load done usage:{:?}", cmd, params.url, st.elapsed().unwrap_or_default());
+            }
         }
-
-        load_usage
-            .lock()
-            .unwrap()
-            .replace(st.elapsed().unwrap_or_default());
-
-        let r = callback(host.to_string(), params, state, page).await;
-        callback_usage
-            .lock()
-            .unwrap()
-            .replace(st.elapsed().unwrap_or_default());
-        r
+        callback(host.to_string(), params, state, page).await
     };
 
     let r = select! {
@@ -519,13 +503,11 @@ where
     let extract_usage = st.elapsed().unwrap_or_default();
 
     log::info!(
-        "{} url: {}, launch: {:?}, extract: {:?} load: {:?} callback: {:?}",
+        "{} url: {}, launch: {:?}, extract: {:?}",
         cmd,
         u,
         launch_usage,
         extract_usage,
-        load_usage_clone.lock().unwrap().unwrap_or_default(),
-        callback_usage_clone.lock().unwrap().unwrap_or_default(),
     );
 
     match file_name {
