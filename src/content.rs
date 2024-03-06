@@ -29,7 +29,8 @@ use tokio::{select, sync::oneshot, time};
 #[derive(Deserialize)]
 pub struct RenderParams {
     url: String,
-
+    uuid: Option<String>,
+    expired: Option<u64>,
     file_name: Option<String>,
     // total timeout in milliseconds
     #[serde(rename = "timeout")]
@@ -90,6 +91,17 @@ pub struct RenderParams {
     full_page: Option<bool>,
 
     author: Option<String>,
+}
+
+impl From<&RenderParams> for SessionOption {
+    fn from(params: &RenderParams) -> SessionOption {
+        SessionOption {
+            uuid: params.uuid.clone(),
+            cleanup: params.expired.is_none(),
+            enable_cache: params.expired.is_some(),
+            landscape: params.landscape.unwrap_or_default(),
+        }
+    }
 }
 
 impl Into<PrintToPdfParams> for RenderParams {
@@ -367,7 +379,7 @@ where
     let st = SystemTime::now();
 
     let device = get_device(&params.emulating_device.clone().unwrap_or_default());
-    let opt = SessionOption::default();
+    let opt = SessionOption::from(&params);
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let session =
@@ -452,14 +464,6 @@ where
         };
 
         let wait_timeout = params.wait_load.unwrap_or(15 * 1000).min(state.max_timeout); // 15 seconds
-        log::info!(
-            "{} {} wait load timeout: {:?} selector:{:?} wait_load:{:?}",
-            cmd,
-            params.url,
-            wait_timeout,
-            params.wait_selector,
-            params.wait_load
-        );
         select! {
             _ = time::sleep(time::Duration::from_millis(wait_timeout)) => {
                 log::warn!("{} {} wait load timeout wait_load:{:?} selector:{:?} images:{:?} network_idle:{:?} page_ready:{:?}", cmd,

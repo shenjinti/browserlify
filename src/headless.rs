@@ -67,7 +67,7 @@ pub(crate) async fn create_headless_browser_session(
         ));
     }
 
-    let id = uuid::Uuid::new_v4().to_string();
+    let id = opt.uuid.unwrap_or(uuid::Uuid::new_v4().to_string());
     let data_dir = format!("{}/{}", state.data_root.trim_end_matches("/"), id);
 
     let config = BrowserConfigBuilder::default()
@@ -101,7 +101,7 @@ pub(crate) async fn create_headless_browser_session(
         .user_data_dir(&data_dir);
 
     let config = match opt.enable_cache {
-        true => config,
+        true => config.enable_cache(),
         false => config.disable_cache(),
     };
 
@@ -166,7 +166,7 @@ pub(crate) async fn handle_headless_session(
     Query(params): Query<CreateSessionParams>,
     State(state): State<StateRef>,
 ) -> Result<Response, Error> {
-    let opt = SessionOption::default();
+    let opt = SessionOption::from(&params);
     let device = get_device(&params.emulating_device.clone().unwrap_or_default());
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let session =

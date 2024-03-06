@@ -15,6 +15,7 @@ use tokio::{fs::read_to_string, sync::oneshot};
 
 #[derive(Debug, Clone)]
 pub(crate) struct SessionOption {
+    pub uuid: Option<String>,
     pub landscape: bool,
     pub cleanup: bool,
     pub enable_cache: bool,
@@ -23,6 +24,7 @@ pub(crate) struct SessionOption {
 impl Default for SessionOption {
     fn default() -> Self {
         Self {
+            uuid: None,
             landscape: false,
             cleanup: true,
             enable_cache: false,
@@ -64,6 +66,12 @@ impl Session {
 pub struct CreateSessionParams {
     #[serde(rename = "device")]
     pub(crate) emulating_device: Option<String>,
+}
+
+impl From<&CreateSessionParams> for SessionOption {
+    fn from(_params: &CreateSessionParams) -> Self {
+        Self::default()
+    }
 }
 
 impl Drop for Session {
