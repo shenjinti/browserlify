@@ -370,7 +370,7 @@ pub async fn extrace_page<C, Fut>(
 ) -> Result<Response, Error>
 where
     C: FnOnce(String, RenderParams, StateRef, Page) -> Fut + Send + 'static,
-    Fut: Future<Output = Result<(Vec<u8>, String, Option<String>), String>> + Send + 'static,
+    Fut: Future<Output = Result<(Vec<u8>, String), String>> + Send + 'static,
 {
     let u = url::Url::parse(params.url.as_str())
         .map_err(|e| Error::new(StatusCode::BAD_REQUEST, &e.to_string()))
@@ -399,6 +399,7 @@ where
         .max(state.max_timeout);
 
     const SLEEP_INTERVAL: u64 = 10;
+    let file_name = params.file_name.clone();
 
     let _guard = SessionGuard::new(state.clone(), session);
     let render_loop = async {
@@ -495,8 +496,7 @@ where
 
     browser.kill().await;
 
-    let (content, content_type, file_name) =
-        r.map_err(|e| Error::new(StatusCode::SERVICE_UNAVAILABLE, &e))?;
+    let (content, content_type) = r.map_err(|e| Error::new(StatusCode::SERVICE_UNAVAILABLE, &e))?;
     let resp = Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", content_type);
@@ -544,12 +544,7 @@ async fn render_pdf(params: RenderParams, state: StateRef) -> Result<Response, E
         },
     };
 
-    extrace_page("pdf", params, state, |host, params, _, page| async move {
-        let file_name = match &params.file_name {
-            Some(name) => name.clone(),
-            None => format!("{host}.pdf"),
-        };
-
+    extrace_page("pdf", params, state, |_, params, _, page| async move {
         if params.disable_link.unwrap_or_default() {
             page.evaluate(
                 "document.querySelectorAll('a').forEach((el) => el.setAttribute('href', '#'))",
@@ -580,7 +575,7 @@ async fn render_pdf(params: RenderParams, state: StateRef) -> Result<Response, E
             }
             Err(_) => content,
         };
-        Ok((content, "application/pdf".to_string(), Some(file_name)))
+        Ok((content, "application/pdf".to_string()))
     })
     .await
 }
@@ -604,18 +599,14 @@ async fn render_screenshot(params: RenderParams, state: StateRef) -> Result<Resp
         "screenshot",
         params,
         state,
-        |host, params, _, page| async move {
+        |_, params, _, page| async move {
             let file_ext = match &params.format {
                 Some(format) => format.clone(),
                 None => "png".to_string(),
             };
-            let file_name = match &params.file_name {
-                Some(name) => name.clone(),
-                None => format!("{host}.{file_ext}"),
-            };
             let params: ScreenshotParams = params.into();
             let content = page.screenshot(params).await.map_err(|e| e.to_string())?;
-            Ok((content, format!("image/{file_ext}"), Some(file_name)))
+            Ok((content, format!("image/{file_ext}")))
         },
     )
     .await
@@ -642,7 +633,7 @@ async fn dump_text(params: RenderParams, state: StateRef) -> Result<Response, Er
             .map_err(|e| e.to_string())?
             .into_value()
             .map_err(|e| e.to_string())?;
-        Ok((content.into(), format!("plain/text"), None))
+        Ok((content.into(), format!("plain/text")))
     })
     .await
 }
@@ -664,7 +655,7 @@ pub async fn dump_html_post(
 async fn dump_html(params: RenderParams, state: StateRef) -> Result<Response, Error> {
     extrace_page("html", params, state, |_, _, _, page| async move {
         let content = page.content_bytes().await.map_err(|e| e.to_string())?;
-        Ok((content.into(), format!("text/html"), None))
+        Ok((content.into(), format!("text/html")))
     })
     .await
 }
