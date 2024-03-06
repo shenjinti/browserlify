@@ -464,11 +464,11 @@ where
             }
         };
 
-        let wait_timeout = params.wait_load.unwrap_or(15 * 1000).min(state.max_timeout); // 15 seconds
+        let wait_timeout = params.wait_load.unwrap_or(15 * 1000).min(state.max_timeout);
         select! {
             _ = time::sleep(time::Duration::from_millis(wait_timeout)) => {
-                log::warn!("{} {} wait load timeout wait_load:{:?} selector:{:?} images:{:?} network_idle:{:?} page_ready:{:?}", cmd,
-                params.url, params.wait_load, params.wait_selector,
+                log::warn!("{} {} wait load timeout:{} wait_load:{:?} selector:{:?} images:{:?} network_idle:{:?} page_ready:{:?}", cmd,
+                params.url, wait_timeout, params.wait_load, params.wait_selector,
                 params.wait_images, params.wait_network_idle, params.wait_page_ready);
             }
             _ = wait_something => {

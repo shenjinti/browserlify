@@ -45,7 +45,7 @@ struct Cli {
     #[clap(long, default_value = "false", help = "enable private ip access")]
     enable_private_ip: bool,
 
-    #[clap(long, default_value = "60", help = "max timeout in seconds")]
+    #[clap(long, default_value = "60000", help = "max timeout in milliseconds")]
     max_timeout: u64,
 
     #[clap(long, default_value = "false", help = "disable cors")]
