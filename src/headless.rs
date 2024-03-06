@@ -100,11 +100,14 @@ pub(crate) async fn create_headless_browser_session(
         ])
         .user_data_dir(&data_dir);
 
+    std::fs::create_dir_all(&data_dir)?;
+
     opt.userdatadir_expire.map(|expire| {
         let expire = SystemTime::now()
             .checked_add(std::time::Duration::from_secs(expire))
             .unwrap();
         let expire_filename = format!("{}/.expire", data_dir);
+
         match std::fs::write(
             &expire_filename,
             chrono::DateTime::<chrono::Utc>::from(expire).to_rfc3339(),
