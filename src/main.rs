@@ -1,4 +1,5 @@
 use axum::{
+    http::{Request, Response},
     routing::{get, post},
     Router,
 };
@@ -7,10 +8,13 @@ use log;
 use session::Session;
 use std::{
     io::Write,
+    net::SocketAddr,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
+use tracing::Span;
 #[cfg(feature = "content")]
 mod content;
 mod devices;
@@ -198,9 +202,45 @@ async fn main() -> std::io::Result<()> {
         .with_max_level(tracing::Level::DEBUG)
         .try_init()
         .ok();
-    let app = Router::new()
-        .nest(&prefix, router)
-        .layer(tower_http::trace::TraceLayer::new_for_http());
+    let app = Router::new().nest(&prefix, router).layer(
+        tower_http::trace::TraceLayer::new_for_http()
+            .make_span_with(|request: &Request<_>| {
+                let remote_ip = request
+                    .headers()
+                    .get("x-real-ip")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.split(',').next())
+                    .and_then(|v| v.parse().ok())
+                    .or_else(|| {
+                        request
+                            .extensions()
+                            .get::<SocketAddr>()
+                            .copied()
+                            .map(|v| v.to_string())
+                    });
+                tracing::info_span!(
+                    "http",
+                    method = %request.method(),
+                    path = %request.uri().path(),
+                    remote = ?remote_ip,
+                )
+            })
+            .on_request(())
+            .on_response(|response: &Response<_>, latency: Duration, _span: &Span| {
+                let content_length = response
+                    .headers()
+                    .get("content-length")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .unwrap_or_default();
+
+                tracing::info!(
+                    latency = ?latency,
+                    content_length = %content_length,
+                    status = %response.status().as_u16(),
+                );
+            }),
+    );
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     log::warn!("Starting server on {} -> {}", addr, prefix);

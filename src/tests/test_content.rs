@@ -17,7 +17,7 @@ async fn test_render_pdf() {
     let target = format!("http://{http_addr}/?from=unittest");
 
     let url = format!(
-        "http://{}/pdf?url={}&author=browserlify_test",
+        "http://{}/pdf?url={}&author=browserlify_test&top=16&bottom=16",
         addr,
         urlencoding::encode(&target)
     );
