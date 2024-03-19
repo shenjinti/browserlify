@@ -217,12 +217,13 @@ async fn main() -> std::io::Result<()> {
                             .get::<SocketAddr>()
                             .copied()
                             .map(|v| v.to_string())
-                    });
+                    })
+                    .unwrap_or_default();
                 tracing::info_span!(
-                    "http",
+                    "HTTP",
                     method = %request.method(),
                     path = %request.uri().path(),
-                    remote = ?remote_ip,
+                    remote = %remote_ip,
                 )
             })
             .on_request(())
