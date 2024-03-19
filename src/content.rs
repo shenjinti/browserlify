@@ -318,7 +318,8 @@ async fn scroll_to_top(page: Page, check_interval: u64) {
     }
 }
 
-async fn wait_images_loaded(page: Page, check_interval: u64) {
+async fn wait_images_loaded(page: Page, cmd: &str, url: &str, check_interval: u64) {
+    let st = SystemTime::now();
     loop {
         match page
             .evaluate("document.images.length")
@@ -346,6 +347,13 @@ async fn wait_images_loaded(page: Page, check_interval: u64) {
         }
         time::sleep(time::Duration::from_millis(check_interval)).await;
     }
+
+    log::info!(
+        "{} {} wait images done usage: {:?}",
+        cmd,
+        url,
+        st.elapsed().unwrap_or_default()
+    );
 }
 
 async fn wait_page_ready(page: Page, check_interval: u64) {
@@ -450,6 +458,7 @@ where
             }
 
             if let Some(selector) = &params.wait_selector {
+                let st = SystemTime::now();
                 loop {
                     match page.find_element(selector.as_str()).await {
                         Ok(_) => break,
@@ -457,11 +466,16 @@ where
                     }
                     time::sleep(time::Duration::from_millis(SLEEP_INTERVAL)).await;
                 }
-                log::info!("{} {} wait {selector} done ", cmd, params.url);
+                log::info!(
+                    "{} {} wait {selector} done usage: {:?}",
+                    cmd,
+                    params.url,
+                    st.elapsed().unwrap_or_default()
+                );
             }
 
             if params.wait_images.unwrap_or_default() {
-                wait_images_loaded(page.clone(), SLEEP_INTERVAL).await;
+                wait_images_loaded(page.clone(), cmd, &params.url, SLEEP_INTERVAL).await;
             }
         };
 
@@ -473,7 +487,7 @@ where
                 params.wait_images, params.wait_network_idle, params.wait_page_ready);
             }
             _ = wait_something => {
-                log::info!("{} {} wait load done usage:{:?}", cmd, params.url, st.elapsed().unwrap_or_default());
+                log::info!("{} {} done usage:{:?}", cmd, params.url, st.elapsed().unwrap_or_default());
             }
         }
         callback(host.to_string(), params, state, page).await
@@ -540,7 +554,7 @@ async fn render_pdf(params: RenderParams, state: StateRef) -> Result<Response, E
         Some(author) => author.clone(),
         None => match &state.author {
             Some(author) => author.clone(),
-            None => "Browserlify".to_string(),
+            None => "browserlify.com".to_string(),
         },
     };
 

@@ -137,7 +137,7 @@ pub(crate) async fn create_headless_browser_session(
     let (browser, handler) = Browser::launch(config).await?;
 
     let ws_url = browser.websocket_address().to_string();
-    log::info!("create session, id: {} dir: {} -> {}", id, data_dir, ws_url);
+    log::debug!("create session, id: {} dir: {} -> {}", id, data_dir, ws_url);
 
     Ok(Session {
         id,

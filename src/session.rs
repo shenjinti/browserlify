@@ -97,7 +97,7 @@ impl Drop for Session {
             },
             false => {}
         }
-        log::info!("session drop id: {}", self.id);
+        log::debug!("session drop id: {}", self.id);
     }
 }
 

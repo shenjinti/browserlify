@@ -222,7 +222,7 @@ async fn main() -> std::io::Result<()> {
                 tracing::info_span!(
                     "HTTP",
                     method = %request.method(),
-                    path = %request.uri().path(),
+                    uri = %request.uri(),
                     remote = %remote_ip,
                 )
             })
