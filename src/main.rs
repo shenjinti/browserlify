@@ -47,6 +47,9 @@ struct Cli {
     #[clap(long, default_value = "info")]
     log_level: String,
 
+    #[clap(long, help = "log file path")]
+    log_file: Option<String>,
+
     #[clap(long, default_value = "false", help = "enable private ip access")]
     enable_private_ip: bool,
 
@@ -67,7 +70,21 @@ struct Cli {
     disable_background_cleanup: bool,
 }
 
-fn init_log(level: String, is_test: bool) {
+fn init_log(level: String, is_test: bool, log_file_name: Option<String>) {
+    let target = match log_file_name
+        .map(|log_file| {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log_file)
+                .ok()
+        })
+        .unwrap_or_default()
+    {
+        Some(log_file) => Box::new(log_file),
+        None => Box::new(std::io::stdout()) as Box<dyn std::io::Write + Send>,
+    };
+
     let _ = env_logger::builder()
         .is_test(is_test)
         .format(|buf, record| {
@@ -88,6 +105,7 @@ fn init_log(level: String, is_test: bool) {
                 record.args()
             )
         })
+        .target(env_logger::Target::Pipe(target))
         .format_timestamp(None)
         .filter_level(level.parse().unwrap())
         .try_init();
@@ -184,7 +202,7 @@ async fn main() -> std::io::Result<()> {
     let addr = args.addr;
     let prefix = args.prefix;
 
-    init_log(args.log_level, false);
+    init_log(args.log_level, false, args.log_file);
 
     let state = Arc::new(AppState {
         data_root: args.data_root,

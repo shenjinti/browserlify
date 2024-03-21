@@ -9,7 +9,7 @@ async fn test_x11_session() {
         return;
     }
 
-    crate::init_log("info".to_string(), false);
+    crate::init_log("info".to_string(), false, None);
     tokio::fs::create_dir_all("/tmp/browserlify_unittest")
         .await
         .expect("create tmp dir fail");

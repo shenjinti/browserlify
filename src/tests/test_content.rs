@@ -5,7 +5,7 @@ use crate::{
 
 #[tokio::test]
 async fn test_render_pdf() {
-    init_log("info".to_string(), false);
+    init_log("info".to_string(), false, None);
     let addr = "127.0.0.1:9004";
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
     serve_test_server(shutdown_rx, addr.to_string()).await;
@@ -58,7 +58,7 @@ async fn test_render_pdf() {
 async fn test_render_screenshot() {
     assert_eq!(0.max(1), 1);
     assert_eq!(2.max(1), 2);
-    init_log("info".to_string(), false);
+    init_log("info".to_string(), false, None);
     let addr = "127.0.0.1:9005";
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
@@ -84,7 +84,7 @@ async fn test_render_screenshot() {
 
 #[tokio::test]
 async fn test_render_text() {
-    init_log("info".to_string(), false);
+    init_log("info".to_string(), false, None);
     let addr = "127.0.0.1:9006";
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
     serve_test_server(shutdown_rx, addr.to_string()).await;
@@ -109,7 +109,7 @@ async fn test_render_text() {
 
 #[tokio::test]
 async fn test_render_html() {
-    init_log("info".to_string(), false);
+    init_log("info".to_string(), false, None);
 
     let addr = "127.0.0.1:9007";
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
@@ -135,7 +135,7 @@ async fn test_render_html() {
 
 #[tokio::test]
 async fn test_wait_load() {
-    init_log("info".to_string(), false);
+    init_log("info".to_string(), false, None);
 
     let addr = "127.0.0.1:9008";
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
