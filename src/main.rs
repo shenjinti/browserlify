@@ -12,6 +12,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+use tokio::select;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use tracing::Span;
@@ -49,14 +50,21 @@ struct Cli {
     #[clap(long, default_value = "false", help = "enable private ip access")]
     enable_private_ip: bool,
 
-    #[clap(long, default_value = "60000", help = "max timeout in milliseconds")]
+    #[clap(
+        long,
+        default_value = "60000",
+        help = "max session timeout in milliseconds"
+    )]
     max_timeout: u64,
 
-    #[clap(long, default_value = "false", help = "disable cors")]
+    #[clap(long, default_value = "false", help = "disable CORS access control")]
     disable_cors: bool,
 
     #[clap(long, help = "default author")]
     author: Option<String>,
+
+    #[clap(long, help = "disable background cleanup", default_value = "false")]
+    disable_background_cleanup: bool,
 }
 
 fn init_log(level: String, is_test: bool) {
@@ -187,7 +195,7 @@ async fn main() -> std::io::Result<()> {
         author: args.author,
     });
 
-    let mut router = create_router(state);
+    let mut router = create_router(state.clone());
 
     if !args.disable_cors {
         router = router.layer(
@@ -202,6 +210,7 @@ async fn main() -> std::io::Result<()> {
         .with_max_level(tracing::Level::DEBUG)
         .try_init()
         .ok();
+
     let app = Router::new().nest(&prefix, router).layer(
         tower_http::trace::TraceLayer::new_for_http()
             .make_span_with(|request: &Request<_>| {
@@ -245,5 +254,13 @@ async fn main() -> std::io::Result<()> {
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     log::warn!("Starting server on {} -> {}", addr, prefix);
-    axum::serve(listener, app).await
+
+    if args.disable_background_cleanup {
+        axum::serve(listener, app).await
+    } else {
+        select! {
+            r = session::background_cleanup_task(state.clone()) => {r}
+            r = async { axum::serve(listener, app).await } => {r}
+        }
+    }
 }

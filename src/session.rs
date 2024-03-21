@@ -8,7 +8,11 @@ use axum::{
 use chromiumoxide::{Browser, Handler};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::{cell::RefCell, time::SystemTime};
+use std::{
+    cell::RefCell,
+    io,
+    time::{Duration, SystemTime},
+};
 use tokio::{fs::read_to_string, sync::oneshot};
 
 #[derive(Debug, Clone)]
@@ -97,7 +101,7 @@ impl Drop for Session {
             },
             false => {}
         }
-        log::debug!("session drop id: {}", self.id);
+        log::info!("session drop id: {}", self.id);
     }
 }
 
@@ -162,7 +166,6 @@ pub(crate) async fn killall_session(State(state): State<StateRef>) {
 
 #[derive(Deserialize)]
 pub(crate) struct ScreenSessionParams {
-    #[cfg(feature = "remote")]
     percentage: Option<i32>,
 }
 
@@ -205,4 +208,66 @@ pub(crate) async fn handle_index_page() -> Response {
             .body(e.to_string().into())
             .unwrap(),
     }
+}
+
+pub(crate) async fn background_cleanup_task(state: StateRef) -> Result<(), io::Error> {
+    log::info!("background_cleanup_task started");
+    loop {
+        let max_timeout = state.max_timeout;
+        let mut sessions = state.sessions.lock().unwrap();
+        sessions.retain(|s| {
+            if let Ok(elapsed) = s.created_at.elapsed() {
+                if elapsed.as_secs() > max_timeout {
+                    log::info!("session id: {} has timed out, elapsed: {:?}", s.id, elapsed);
+                    return false;
+                }
+            }
+            true
+        });
+        // cleanup expired userdatadir
+        clean_expired_dir(std::path::Path::new(&state.data_root)).await?;
+        tokio::time::sleep(Duration::from_secs(60)).await;
+    }
+}
+
+async fn clean_expired_dir(dir: &std::path::Path) -> std::io::Result<()> {
+    if !dir.is_dir() {
+        return Ok(());
+    }
+
+    let mut dir = tokio::fs::read_dir(dir).await?;
+    let now = chrono::Utc::now().timestamp();
+
+    while let Some(res) = dir.next_entry().await? {
+        let dir_meta = res.metadata().await?;
+        if !dir_meta.is_dir() {
+            continue;
+        }
+        let path = res.path();
+        let expire_file = path.join(".expire");
+        if !expire_file.exists() || !expire_file.is_file() {
+            continue;
+        }
+
+        let expire_time = tokio::fs::read_to_string(expire_file).await?;
+        let expire_time = expire_time.trim();
+        // format rfc3389 2024-03-19T07:30:14.970638011+00:00
+        chrono::DateTime::parse_from_rfc3339(&expire_time)
+            .map(|expire_time| {
+                if now > expire_time.timestamp() {
+                    log::info!("clean_expired_dir: {:?} at {:?}", path, expire_time);
+                    std::fs::remove_dir_all(&path).unwrap_or_else(|e| {
+                        log::error!("remove_dir_all error: {:?} path: {}", e, path.display());
+                    });
+                }
+            })
+            .unwrap_or_else(|e| {
+                log::error!(
+                    "parse_from_rfc3339 error: {:?} expire_time: {}",
+                    e,
+                    expire_time,
+                );
+            });
+    }
+    Ok(())
 }
