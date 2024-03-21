@@ -213,17 +213,24 @@ pub(crate) async fn handle_index_page() -> Response {
 pub(crate) async fn background_cleanup_task(state: StateRef) -> Result<(), io::Error> {
     log::info!("background_cleanup_task started");
     loop {
-        let max_timeout = state.max_timeout;
-        let mut sessions = state.sessions.lock().unwrap();
-        sessions.retain(|s| {
-            if let Ok(elapsed) = s.created_at.elapsed() {
-                if elapsed.as_secs() > max_timeout {
-                    log::info!("session id: {} has timed out, elapsed: {:?}", s.id, elapsed);
-                    return false;
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .retain(|s| match s.created_at.elapsed() {
+                Ok(elapsed) => {
+                    if elapsed.as_secs() > state.max_timeout {
+                        log::info!("session id: {} has timed out, elapsed: {:?}", s.id, elapsed);
+                        false
+                    } else {
+                        true
+                    }
                 }
-            }
-            true
-        });
+                Err(e) => {
+                    log::error!("elapsed error: {:?}", e);
+                    true
+                }
+            });
         // cleanup expired userdatadir
         clean_expired_dir(std::path::Path::new(&state.data_root)).await?;
         tokio::time::sleep(Duration::from_secs(60)).await;
