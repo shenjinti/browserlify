@@ -4,9 +4,12 @@ Browserlify  - browser as a service
 Browserlify is a browser service:
 - Content API: Retrieve web page content by URL, supporting PDF generation, screenshot capture, text extraction, and HTML dumping.
 - Headless Chrome: Connect to Headless Chrome via WebSocket and perform testing using Puppeteer.
-- Remote Browser: Implement a remote browser based on noVNC, allowing browser access through a web interface.
+- 🔥 Remote Browser: Implement a remote browser based on noVNC, allowing browser access through a web interface.
 
 With Browserlify, you can easily access web content, automate testing with Headless Chrome, and enjoy the convenience of a remote browser.
+
+🚀 They is a  [cloud browser demo](https://browserlify.com/remote.html?from=github). 👏
+
 
 ### Screenshots
 
