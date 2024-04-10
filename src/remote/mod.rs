@@ -6,7 +6,7 @@ use crate::{
     StateRef,
 };
 use axum::{
-    extract::{Path, State, WebSocketUpgrade},
+    extract::{Path, Query, State, WebSocketUpgrade},
     http::StatusCode,
     response::Response,
     Json,
@@ -69,6 +69,11 @@ struct RemoteInfo {
     pub http_proxy: Option<String>,
     pub locale: Option<String>,
     pub timezone: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct ConnectParams {
+    retain: Option<bool>,
 }
 
 pub(crate) async fn list_remote(
@@ -192,6 +197,7 @@ pub(crate) async fn edit_remote(
 pub(crate) async fn connect_remote(
     ws: WebSocketUpgrade,
     Path(remote_id): Path<String>,
+    Query(params): Query<ConnectParams>,
     State(state): State<StateRef>,
 ) -> Result<Response, crate::Error> {
     let data_root = std::path::Path::new(&state.data_root);
@@ -225,9 +231,11 @@ pub(crate) async fn connect_remote(
         .ok_or_else(|| crate::Error::new(StatusCode::BAD_GATEWAY, "target invalid"))?
         .clone();
 
+    let retain = params.retain.unwrap_or(true);
+
     // connect to remote
     let mut target = tokio::net::TcpStream::connect(addr).await?;
-    let r = ws.on_upgrade(|client_stream| async move {
+    let r = ws.on_upgrade(move |client_stream| async move {
         let (mut client_ws_tx, mut client_ws_rx) = client_stream.split();
         let (mut server_rx, mut server_tx) = target.split();
         let id = remote_id.clone();
@@ -277,11 +285,16 @@ pub(crate) async fn connect_remote(
                 log::info!("remote client_to_server id: {} exit", remote_id);
             }
         }
+
         log::info!(
             "connect_remote id: {} exit endponit: {}",
             remote_id,
             endpoint
         );
+
+        if !retain {
+            kill_session(Path(remote_id.clone()), State(state.clone())).await;
+        }
     });
     Ok(r)
 }
@@ -326,7 +339,7 @@ pub(crate) async fn start_remote(
         Some(_) => {
             return Err(crate::Error::new(
                 StatusCode::BAD_GATEWAY,
-                "session is shutdown",
+                "session is running",
             ))
         }
         None => {}
