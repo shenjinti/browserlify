@@ -4,7 +4,6 @@ use axum::{
     Router,
 };
 use clap::Parser;
-use log;
 use session::Session;
 use std::{
     io::Write,
@@ -16,6 +15,7 @@ use tokio::select;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use tracing::Span;
+use tracing_appender;
 #[cfg(feature = "content")]
 mod content;
 mod devices;
@@ -70,21 +70,22 @@ struct Cli {
     disable_background_cleanup: bool,
 }
 
-fn init_log(level: String, is_test: bool, log_file_name: Option<String>) {
-    let target = match log_file_name
-        .map(|log_file| {
+fn open_log_output(log_file_name: Option<String>) -> Box<dyn std::io::Write + Send> {
+    match log_file_name {
+        Some(log_file) => Box::new(
             std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
                 .open(log_file)
                 .ok()
-        })
-        .unwrap_or_default()
-    {
-        Some(log_file) => Box::new(log_file),
+                .unwrap(),
+        ),
         None => Box::new(std::io::stdout()) as Box<dyn std::io::Write + Send>,
-    };
+    }
+}
 
+fn init_log(level: String, is_test: bool, log_file_name: Option<String>) -> tracing_appender::non_blocking::WorkerGuard {
+    let target = open_log_output(log_file_name.clone());
     let _ = env_logger::builder()
         .is_test(is_test)
         .format(|buf, record| {
@@ -105,10 +106,20 @@ fn init_log(level: String, is_test: bool, log_file_name: Option<String>) {
                 record.args()
             )
         })
-        .target(env_logger::Target::Pipe(target))
+        .target(env_logger::Target::Pipe(target as Box<dyn std::io::Write+Send>))
         .format_timestamp(None)
         .filter_level(level.parse().unwrap())
         .try_init();
+    
+    let target = open_log_output(log_file_name);
+    let (non_blocking, log_guard) = tracing_appender::non_blocking(target);
+  
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .with_writer(non_blocking)
+        .try_init()
+        .ok();
+    log_guard
 }
 
 #[derive(Clone)]
@@ -202,7 +213,7 @@ async fn main() -> std::io::Result<()> {
     let addr = args.addr;
     let prefix = args.prefix;
 
-    init_log(args.log_level, false, args.log_file);
+    let _log_guard = init_log(args.log_level, false, args.log_file);
 
     let state = Arc::new(AppState {
         data_root: args.data_root,
@@ -223,11 +234,6 @@ async fn main() -> std::io::Result<()> {
                 .allow_methods(Any),
         )
     }
-
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
-        .try_init()
-        .ok();
 
     let app = Router::new().nest(&prefix, router).layer(
         tower_http::trace::TraceLayer::new_for_http()
@@ -271,8 +277,8 @@ async fn main() -> std::io::Result<()> {
     );
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    log::warn!("Starting server on {} -> {}", addr, prefix);
-
+    println!("Starting server on {} -> {}", addr, prefix);
+    tracing::warn!("Starting server on {} -> {}", addr, prefix);
     if args.disable_background_cleanup {
         axum::serve(listener, app).await
     } else {

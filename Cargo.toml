@@ -13,30 +13,31 @@ headless = []
 content = ["headless"]
 
 [dependencies]
-axum = { version = "0.7.4", features = ["ws", "json"] }
-chromiumoxide = { version = "0.5.7", features = [
+axum = { version = "0.7.7", features = ["ws", "json"] }
+chromiumoxide = { version = "0.7.0", features = [
     "tokio-runtime",
     "bytes",
 ], default-features = false }
-clap = { version = "4.4.17", features = ["derive"] }
-log = "0.4.20"
-env_logger = "0.11.1"
-chrono = "0.4.31"
-serde = { version = "1.0.195" }
-serde_json = "1.0.111"
-uuid = { version = "1.6.1", features = ["v4"] }
-futures = "0.3.30"
-tokio = { version = "1.35.1", features = ["full"] }
-tokio-tungstenite = "0.21.0"
-url = "2.5.0"
-reqwest = "0.11.23"
+clap = { version = "4.5.20", features = ["derive"] }
+log = "0.4.22"
+env_logger = "0.11.5"
+chrono = "0.4.38"
+serde = { version = "1.0.210" }
+serde_json = "1.0.132"
+uuid = { version = "1.11.0", features = ["v4"] }
+futures = "0.3.31"
+tokio = { version = "1.40.0", features = ["full"] }
+tokio-tungstenite = "0.24.0"
+url ="2.5.2"
+reqwest = "0.12.8"
 urlencoding = "2.1.3"
-lazy_static = "1.4.0"
-tower-http = { version = "0.5.1", features = ["full"] }
-lopdf = "0.32.0"
+lazy_static = "1.5.0"
+tower-http = { version = "0.6.1", features = ["full"] }
+lopdf = "0.34.0"
 rand = "0.8.5"
-which = "6.0.0"
-tempfile = "3.2.0"
-regex = "1.10.3"
+which = "6.0.3"
+tempfile = "3.13.0"
+regex = "1.11.0"
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
+tracing-appender = "0.2.3"

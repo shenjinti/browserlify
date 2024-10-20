@@ -1,13 +1,10 @@
-use crate::{
-    init_log,
-    tests::{serve_test_http_server, serve_test_server},
-};
+use crate::tests::{serve_test_http_server, serve_test_server};
+
 use chromiumoxide::Browser;
 use futures::StreamExt;
 
 #[tokio::test]
 async fn test_connect() {
-    init_log("info".to_string(), false, None);
     let addr = "127.0.0.1:9002";
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
     serve_test_server(shutdown_rx, addr.to_string()).await;
@@ -22,7 +19,6 @@ async fn test_connect() {
 }
 #[tokio::test]
 async fn test_dump_content() {
-    init_log("info".to_string(), false, None);
     let addr = "127.0.0.1:9003";
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
     serve_test_server(shutdown_rx, addr.to_string()).await;

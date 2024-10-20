@@ -1,5 +1,3 @@
-use core::time;
-
 use crate::remote::x11vnc::{create_x11_session, X11SessionOption};
 
 #[tokio::test]
@@ -9,7 +7,6 @@ async fn test_x11_session() {
         return;
     }
 
-    crate::init_log("info".to_string(), false, None);
     tokio::fs::create_dir_all("/tmp/browserlify_unittest")
         .await
         .expect("create tmp dir fail");
@@ -32,5 +29,5 @@ async fn test_x11_session() {
         .expect("create x11vnc fail");
 
     drop(session);
-    tokio::time::sleep(time::Duration::from_secs(1)).await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 }

@@ -1,7 +1,6 @@
 use crate::remote::RemoteHandler;
 use crate::session::Session;
 use axum::http::StatusCode;
-use core::time;
 use lazy_static::lazy_static;
 use std::cell::RefCell;
 use std::fs::OpenOptions;
@@ -231,7 +230,7 @@ pub(super) async fn create_x11_session(
                 }
                 Err(_) => {}
             }
-            tokio::time::sleep(time::Duration::from_secs(1)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
     };
 
